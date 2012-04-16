@@ -67,7 +67,7 @@ than satisfactry the optimization ends
     -verbose causes output on the state of optimisation to be printed out at various intervals
 """
  #create
-    def __init__ (self, f, cons, pool=200, its=200, tolerance=0.00001, satisfactory=1.0/5000, mutationRate=15, verbose=True):
+    def __init__ (self, f, cons, pool=200, its=200, tolerance=0.00001, satisfactory=1.0/5000, mutationRate=15, hillWalks=4, startWalk=False, finalWalk=False, verbose=False):
         self.verbose=verbose
         self.cons=cons
         if type(pool)==type([]): self.pool=pool
@@ -85,21 +85,24 @@ than satisfactry the optimization ends
         self.satisfactory=satisfactory
         self.muterate=mutationRate
         self.f=f
+        self.walks=hillWalks
+        self.sw=startWalk
+        self.fw=finalWalk
     
     def convTest(self):
         "test if the top value is > satisfactory or fractional difference in parameter space between top answer and 1/3 of the way down the list is less than tol"
         top=self.pool[0][1:]
         third=self.pool[self.poolSize/3][1:]
-        return self.pool[0][0]<self.satisfactory or (np.sqrt(sum([(x-y)**2 for x,y in zip(top,third)]))/ np.sqrt(sum(top)))<self.tol
+        return self.pool[0][0]<self.satisfactory or (np.sqrt(sum([(x-y)**2 for x,y in zip(top,third)]))/ np.sqrt(sum(top)))<(top**2).sum()*self.tol
 
     def run (self):
-        "start optimising"
+        "start optimizing"
         i=0
-        self.pool[0]=_hillWalk_(self.f, self.pool[0])
+        if self.sw and not(self.convTest()):self.pool[0]=_hillWalk_(self.f, self.pool[0])
         while i<self.its and not(self.convTest()):
             if i%(self.its/10)==0: 
                 if self.verbose: print [x[0] for x in self.pool[:5]], str((i*100)/self.its)+'%'
-            if (i+self.its/20)%(self.its/3)==0: 
+            if (i+self.its/20)%(self.its/self.walks)==0: 
                 if self.verbose: print 'hill-walking'
                 for _ in xrange(20):
                      for j in xrange(self.poolSize/2): #only hill walk every 2nd element to (hopefully prevent convergence on one local maximum)
@@ -118,5 +121,5 @@ than satisfactry the optimization ends
             self.pool=self.pool[:self.poolSize]#  cull 
             i+=1
         if self.verbose: print '100%'
-        self.pool[0]=_hillWalk_(self.f,self.pool[0],self.verbose)
+        if self.fw: self.pool[0]=_hillWalk_(self.f,self.pool[0],self.verbose)
         return self.pool[0]
