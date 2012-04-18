@@ -16,7 +16,7 @@ def datafile(path):
 
 
 try: path=argv[1]
-except ValueError: path=raw_input("enter path: ")
+except : path=raw_input("enter path: ")
 
 try :
     dat=datafile (path)

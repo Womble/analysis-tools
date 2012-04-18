@@ -7,6 +7,18 @@ from complete import cube_convolve
 import pyfits as P
 import sys,os
 from scipy.weave import blitz
+from matplotlib.cm import RdBu_r as cm
+from pylab import plot, imshow, clf, colorbar
+
+cm.set_under((0.0,0.0,0.25))
+cm.set_over ((0.25,0.0,0.0))
+cm.set_bad  ((0.0,0.25,0.0))
+
+last_plot=[]
+
+def xyplot(lis): 
+    x,y=apply(zip, lis)
+    plot(x,y)
 
 def gauss2 (x, params):
      """calculate the sum of 2 gaussians and a scalar
@@ -122,30 +134,29 @@ def double_gaussian_fit(im, verbose=False) :
                                         nv(mn,mn/4)*-10,rnd()*15, nv(trough,10),\
                                         c*nv(1, 0.1)))
 
-             def foo(params):
-                  #inlined gauss2 (this is the intermost part of the optimisation)
-                  a1,s1,m1,a2,s2,m2,c=params
-                  func1=np.exp(-(X-m1)**2/(2*s1*s1))
-                  func2=np.exp(-(X-m2)**2/(2*s2*s2))
-                  func1*=a1; func2*=a2; func1+=func2; func1+=c; func1-=d; func1*=func1
-#                  blitz('func1=func1*a1+func2*a2+c')#not working for some reason
-                  return func1.sum()
-
              def err(params,x,y):
                   a1,s1,m1,a2,s2,m2=params
-                  if abs(s1)>100 or abs(s2)>100 or m1>250+1.5*abs(s1) or m1< -1.5*abs(s1) or m2>250+1.5*abs(s2) or m2< -1.5*abs(s2):
-                       return -y
-                  else:
-                       return gauss2(x, [a1,s1,m1,a2,s2,m2,c])-y
+                  func1=np.exp(-(x-m1)**2/(2*s1*s1))
+                  func2=np.exp(-(x-m2)**2/(2*s2*s2))
+                  func1*=a1; func2*=a2; func1+=func2; func1+=c; func1-=y;
+                  return func1
 
              v,success=optimize.leastsq(err, (d[peak]-c, 10, peak , d[trough]-d[peak], 10, trough), args=(X,d))
              if success!=1:
+                  def foo(params):
+                      #inlined gauss2 (this is the intermost part of the optimisation)
+                       a1,s1,m1,a2,s2,m2,c=params
+                       func1=np.exp(-(X-m1)**2/(2*s1*s1))
+                       func2=np.exp(-(X-m2)**2/(2*s2*s2))
+                       func1*=a1; func2*=a2; func1+=func2; func1+=c; func1-=d; func1*=func1
+                       return func1.sum()
+    
                   if not(verbose):
                        actualstdout = sys.stdout
                        sys.stdout = open(os.devnull,'w')
                   #if leastsq doesnt give a goot fit then try to fit with a genetic alg
-                  s=g.optimize(foo, cons, satisfactory=0.01*251, tolerance=0.001, its=100, hillWalks=2, verbose=verbose, startWalk=True)
-                  r=g.optimize(foo, cons, satisfactory=0.01*251, tolerance=0.001, its=100, hillWalks=2, verbose=verbose, startWalk=True)
+                  s=g.optimize(foo, cons, satisfactory=2.51, tolerance=0.001, its=100, hillWalks=2, verbose=verbose, startWalk=True)
+                  r=g.optimize(foo, cons, satisfactory=2.51, tolerance=0.001, its=100, hillWalks=2, verbose=verbose, startWalk=True)
                   s.run()
                   r.run()
                   final=g.optimize(foo, cons, satisfactory=1.0, tolerance=0.0001, pool=s.pool+r.pool, finalWalk=True)
@@ -164,7 +175,8 @@ def double_gaussian_fit(im, verbose=False) :
 
 def disc_analysis (path, threshold=0.1, sigma=4, verbose=False):
     """read in and peform a fitting on the fits file at path containing an imcube and write out
-the results to a new fits file called Xfitted.fits of shape [4,x,y] where the 4 planes of the output are mean of the first and second gaussians"""
+the results to a new fits file called Xfitted.fits of shape [7,x,y] where the 7 planes of the 
+output are fitting parameters amplitude sigma and mean of the 2 gaussians and the baseline level"""
     im=cube_convolve(P.getdata(path), sigma)
     psplit=path.split('.')
     print(psplit)
@@ -185,3 +197,29 @@ the results to a new fits file called Xfitted.fits of shape [4,x,y] where the 4 
              else:
                   ans[:,i,j]=(ele[3],ele[4],ele[5],ele[0],ele[1],ele[2],ele[6])
     return res
+
+def pv (im, plane, axis=1, contSub=False):
+     global last_plot
+     if   axis==1: p=im[:,plane,:].copy()
+     elif axis==2: p=im[:,:,plane].copy()
+     if contSub :
+          for i in xrange(p.shape[1]):
+               c=sorted(p[:,i])[p.shape[0]/2]
+               p[:,i]-=c
+
+     srt=sorted(p.flatten())
+     l=len(srt)
+     clf()
+     imshow(p.transpose(), cmap=cm, vmin=srt[l/50], vmax=srt[49*l/50], interpolation='nearest')
+     colorbar()
+     last_plot=p.transpose()
+
+def mom1map (fits, sensitivity=0.1):
+     global last_plot
+     f=fits[2,:,:].copy()
+     mask=(abs(fits[0,...]/fits[-1,...]))<sensitivity
+     f[mask]=np.nan
+     clf()
+     imshow(f, cmap=cm, vmin=0, vmax=250)
+     colorbar()
+     last_plot=f
