@@ -1,7 +1,7 @@
 #!/usr/bin/python
-import Gnuplot, numpy
+from numpy import *
 from sys import argv
-g=Gnuplot.Gnuplot()
+from pylab import plot, loglog, semilogx, clf
 
 def datafile(path):
     lines=[]
@@ -10,76 +10,95 @@ def datafile(path):
     for line in f: 
         if line.strip()[0] in '1234567890.-+': lines.append([float(x) for x in line.split()])
     f.close()
-    return numpy.array(lines)
+    return array(lines)
 
-
-
+def xyplot(lis, **kwargs): 
+    x,y=apply(zip, lis)
+    plot(x,y, **kwargs)
 
 try: path=argv[1]
-except : path=raw_input("enter path: ")
+except: path=raw_input("enter path: ")
 
 try :
     dat=datafile (path)
 except IOError: 
     dat=datafile(raw_input("enter path: "))
-g('reset;set style data dots')
-g('unset logscale')
+
 print 'grid points in rz'
-g.plot([(numpy.sqrt(x*x+y*y),abs(z)) for x,y,z in dat[:,0:3]])
+clf();plot ([sqrt((dat[i,0:2]**2).sum()) for i in xrange(dat.shape[0])], abs(dat[:,2]), ',')
 raw_input("enter to continue")
 
-g('set logscale xy')
 print 'grid points in log rz'
-g.replot()
+clf();loglog ([sqrt((dat[i,0:2]**2).sum()) for i in xrange(dat.shape[0])], abs(dat[:,2]), ',')
 raw_input("enter to continue")
 
-points=sorted([numpy.sqrt(x*x+y*y+z*z) for x,y,z in dat[:,0:3]])
-min,max=numpy.log(points[0]),numpy.log(points[-1])
-g('set xrange ['+str(numpy.exp(min))+':'+str(numpy.exp(max))+']')
-g('unset logscale;set logscale x')
+points=sorted([sqrt(x*x+y*y+z*z) for x,y,z in dat[:,0:3]])
 print 'cumulative distribution of points in r'
-g.plot([(r,i) for i,r in enumerate(points)])
+clf()
+semilogx(points, xrange(len(points)), drawstyle='steps-mid')
 raw_input("enter to continue")
 
-g('set style data steps')
-lrange=max-min
-bins=[numpy.exp(min+lrange*i/100.) for i in xrange(101)]
-histo=list(numpy.histogram(points,bins)[0])+[0]
+lrange=max(points)-min(points)
+bins=[min(points)+exp(i/50.)/exp(1)*lrange for i in xrange(51)]
+histo=list(histogram(points,bins)[0])+[0]
 print 'histogram (log spaced) grid points in r'
-g.plot([(bins[i],histo[i]) for i in xrange(len(bins))])
+clf();semilogx(bins,histo,drawstyle='steps-mid')
 raw_input("enter to continue")
 
 print "nh2 density"
-g('set logscale xy')
-h,m=dat[0,3],dat[0,5]
-g.replot(Gnuplot.Data(sorted([(numpy.sqrt(x*x+y*y+z*z),nh2) for x,y,z,nh2        in dat[:,0:4] if nh2>0]), with_='dots'))
+#h,m=dat[0,3],dat[0,5]
+#g.replot(Gnuplot.Data(sorted([(sqrt(x*x+y*y+z*z),nh2) for x,y,z,nh2        in dat[:,0:4] if nh2>0]), with_='dots'))
+clf();loglog (sqrt((dat[:,0:3]**2).sum(1)), dat[:,3],'.')
+raw_input("enter to continue")
+
+print "molecular abundance"
+loglog ([sqrt((dat[i,0:3]**2).sum()) for i in xrange(0,dat.shape[0])], dat[:,5],'.')
 raw_input("enter to continue")
 
 print "molecular density"
-g.replot(Gnuplot.Data(sorted([(numpy.sqrt(x*x+y*y+z*z),nh2*nm) for x,y,z,nh2,_,nm in dat[:,0:6]if nh2>0 and nm>0]), with_='dots'))
+loglog ([sqrt((dat[i,0:3]**2).sum()) for i in xrange(0,dat.shape[0])], dat[:,3]*dat[:,5],'.')
 raw_input("enter to continue")
 
-g.plot(Gnuplot.Data(sorted([(numpy.sqrt(x*x+y*y+z*z),nh2*nm) for x,y,z,nh2,_,nm in dat[:,0:6]if nh2>0 and nm>0]), with_='dots'))
-raw_input("enter to continue")
-g.replot(Gnuplot.Data(sorted([(numpy.sqrt(x*x+y*y+z*z),nm) for x,y,z,nh2,_,nm in dat[:,0:6]if nh2>0 and nm>0]), with_='dots'))
-raw_input("enter to continue")
-g.replot(Gnuplot.Data(sorted([(numpy.sqrt(x*x+y*y+z*z),nh2) for x,y,z,nh2,_,nm in dat[:,0:6]if nh2>0 and nm>0]), with_='dots'))
-raw_input("enter to continue")
+try:
+    statWeights=[int (x) for x in raw_input("input statistical weights of levels (or leave blank for simple rotor levels): ").split()]
+    g1,g2,g3,g4,g5=statWeights
+except:
+    g1,g2,g3,g4,g5=statWeights=1,3,5,7,9
+print statWeights
 
-print "population inversion points"
-g('reset;set logscale xy; set style data points; set pointsize 0.5')
-try: g.plot  ([(numpy.sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3 in dat[:,0:9] if not(n1>=n2)])
-except AssertionError : print "no masing in 1-0"
-try: g.replot([(numpy.sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3 in dat[:,0:9] if not(n2>=n3)])
-except AssertionError : print "no masing in 2-1"
-g('set pointsize 1.0')
+try:
+    print "population inversion points"
+    inv10x,inv10y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3 in dat[:,0:9] if not(n1/g1>=n2/g2)])
+    print "{} inversions out of {} in 1->0".format(len(inv10x), dat.shape[0])
+except ValueError:
+    print 'no inversions in 1-0'
+    inv10x,inv10y=[],[]
+try:
+    inv21x,inv21y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3 in dat[:,0:9] if not(n2/g2>=n3/g3)])
+    print "{} inversions out of {} in 1->0".format(len(inv21x), dat.shape[0])
+except ValueError:
+    print 'no inversions in 2-1'
+    inv21x,inv21y=[],[]
+try:
+    inv32x,inv32y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3,n4 in dat[:,0:10] if not(n3/g3>=n4/g4)])
+    print "{} inversions out of {} in 1->0".format(len(inv32x), dat.shape[0])
+except ValueError:
+    print 'no inversions in 3-2'
+    inv32x,inv32y=[],[]
+
+clf()
+loglog(inv10x,inv10y,'x')
+loglog(inv21x,inv21y,'+')
+loglog(inv32x,inv32y,'*')
+
 raw_input("enter to continue")
 
 print "checking for negative values"
 try: 
-    g.plot  ([(numpy.sqrt(x*x+y*y),abs(z)) for x,y,z,h,T,m,n1,n2 in dat[:,0:8] if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)])
+    clf()
+    xyplot([(sqrt(x*x+y*y),abs(z)) for x,y,z,h,T,m,n1,n2 in dat[:,0:8] if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)], linestyle='.')
     print [(i, (h,T,m,n1,n2)) for (i,(x,y,z,h,T,m,n1,n2)) in enumerate(dat[:,0:8]) if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
-except AssertionError : print "ok"
+except : print "ok"
 raw_input("enter to continue")
 
 print "kinetic and excitation temperature"
@@ -88,15 +107,16 @@ try : de=float(raw_input("enter n1-n2 energy gap (in Hz ev or J)"))
 except ValueError: de=1e11
 if de>1e6: de*=6.626068e-34
 elif de>1: de*=1.60217646e-19
-g('unset logscale; set logscale x; set style data dots')
-g.plot([(numpy.sqrt(x*x+y*y+z*z),(numpy.log(n2/n1)*(kb/de)*-1)**-1) for x,y,z,_,_,_,n1,n2 in dat[:,0:8]])
-g.replot([(numpy.sqrt(x*x+y*y+z*z),T) for x,y,z,_,T in dat[:,0:5]])
+clf()
+semilogx(sqrt((dat[:,:3]**2).sum(1)),(log(dat[:,7]*g1/dat[:,6]/g2)*(kb/de)*-1)**-1, 'r.')
+semilogx(sqrt((dat[:,:3]**2).sum(1)), dat[:,4], 'g.')
 raw_input("enter to continue")
 
-g('set logscale xy; set style data dots; set yrange [1e-5:1.1]')
-g.plot([(numpy.sqrt(x*x+y*y+z*z),n1) for x,y,z,_,_,_,n1 in dat[:,0:7]])
+print "level populations"
+clf()
 for i in xrange(5):
-    g.replot([(numpy.sqrt(dat[j,0]*dat[j,0]+dat[j,1]*dat[j,1]+dat[j,2]*dat[j,2]),dat[j,7+i])for j in xrange(len(dat[:,0]))])
-#    g.replot([(numpy.sqrt(dat[j,0]*dat[j,0]+dat[j,1]*dat[j,1]+dat[j,2]*dat[j,2]),dat[j,6:].sum())for j in xrange(len(dat[:,0]))])
+    loglog(sqrt((dat[:,:3]**2).sum(1)),dat[:,6+i]/statWeights[i], '.')
+    loglog(sqrt((dat[:,:3]**2).sum(1)),dat[:,6+i])
+    raw_input("level {} (press enter to continue)".format(i))
 
 raw_input("enter to finish")

@@ -180,8 +180,8 @@ output are fitting parameters amplitude sigma and mean of the 2 gaussians and th
     im=cube_convolve(P.getdata(path), sigma)
     psplit=path.split('.')
     print(psplit)
-    data=[i for i in xrange(im.shape[1]) if im[:,i,:].sum()/im.shape[0]/im.shape[-1] > np.power(10, -1.5)]
-    mn,mx=min(data),max(data)
+#    data=[i for i in xrange(im.shape[1]) if im[:,i,:].sum()/im.shape[0]/im.shape[-1] > np.power(10, -1.5)]
+    mn,mx=70,130#min(data),max(data)
 #    res=scipy_double_gaussian_fit(im, verbose=verbose)
     res=double_gaussian_fit(im[:,mn:mx,:], verbose=verbose)
     try :P.writeto(''.join(psplit[:-1]+['fitted.fits']), res)
