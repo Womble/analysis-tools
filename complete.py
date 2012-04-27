@@ -17,6 +17,7 @@ def garray(shape, sigma):
 def FWHM2sigma (FWHM): return FWHM/(2*sqrt(2*log(2)))
 
 def beam_convolve(arr, sigma):
+    "convoles a 2D image with a gaussian profile with sigma in px"
     if len(arr.shape)!=2 or 3*sigma > max(arr.shape): raise ValueError ("arr is not 2d or beam is too wide")
     else: 
         shape=arr.shape

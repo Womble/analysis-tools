@@ -8,6 +8,7 @@ import pyfits as P
 import sys,os
 from scipy.weave import blitz
 from matplotlib.cm import RdBu_r as cm
+import matplotlib
 from pylab import plot, imshow, clf, colorbar
 
 cm.set_under((0.0,0.0,0.25))
@@ -184,35 +185,59 @@ output are fitting parameters amplitude sigma and mean of the 2 gaussians and th
     mn,mx=70,130#min(data),max(data)
 #    res=scipy_double_gaussian_fit(im, verbose=verbose)
     res=double_gaussian_fit(im[:,mn:mx,:], verbose=verbose)
-    try :P.writeto(''.join(psplit[:-1]+['fitted.fits']), res)
-    except IOError as msg: print msg 
     ans=np.ones(res.shape, dtype=np.float)
     ans+=np.nan
     shape=res.shape
     for i in xrange(shape[1]):
         for j in xrange(shape[2]):
              ele=res[:,i,j]
-             if abs(ele[0])>abs(ele[3]):
+             if abs(ele[0])>=abs(ele[3]) and not(1.6<abs(ele[1])<2.1 and 122<abs(ele[2])<128 and ele[0]<-4):
                   ans[:,i,j]=ele
              else:
                   ans[:,i,j]=(ele[3],ele[4],ele[5],ele[0],ele[1],ele[2],ele[6])
-    return res
+    try :P.writeto(''.join(psplit[:-1]+['fitted.fits']), ans)
+    except IOError as msg: print msg 
+    return ans
 
-def pv (im, plane, axis=1, contSub=False):
-     global last_plot
-     if   axis==1: p=im[:,plane,:].copy()
-     elif axis==2: p=im[:,:,plane].copy()
-     if contSub :
-          for i in xrange(p.shape[1]):
-               c=sorted(p[:,i])[p.shape[0]/2]
-               p[:,i]-=c
 
-     srt=sorted(p.flatten())
-     l=len(srt)
-     clf()
-     imshow(p.transpose(), cmap=cm, vmin=srt[l/50], vmax=srt[49*l/50], interpolation='nearest')
-     colorbar()
-     last_plot=p.transpose()
+
+#displays
+def pv (im, contSub=False, spatRes=0.625, velRes=0.075):
+    global last_plot
+#    fig=figure()
+#    ax=matplotlib.image.NonUniformImage(fig, interpolation='nearest',  extent=[-velRes*p.shape[0]/2.0, velRes*p.shape[0]/2.0, -spatRes*p.shape[1]/2.0, spatRes*p.shape[1]/2.0])
+
+    if (len (im.shape)==3):
+        plane=float(raw_input("plane number for pv slice: "))
+        axis=float(raw_input("axis number (y=1, x=2): "))
+        global last_plot
+        if   axis==1: p=im[:,plane,:].copy()
+        elif axis==2: p=im[:,:,plane].copy()
+        if contSub :
+            for i in xrange(p.shape[1]):
+                c=sorted(p[:,i])[p.shape[0]/2]
+                p[:,i]-=c
+                
+        srt=sorted(p.flatten())
+        l=len(srt)
+        clf()
+        imshow(p.transpose(), cmap=cm, vmin=srt[l/10], vmax=srt[49*l/50], interpolation='nearest')
+        colorbar()
+        last_plot=p.transpose()
+
+    elif (len (im.shape)==2):
+        p=im.copy()
+        if contSub :
+            for i in xrange(p.shape[1]):
+                c=sorted(p[:,i])[p.shape[0]/2]
+                p[:,i]-=c
+
+        srt=sorted(p.flatten())
+        l=len(srt)
+        clf()
+        imshow(p.transpose(), cmap=cm, vmin=srt[l/10], vmax=srt[99*l/100], interpolation='nearest')
+        colorbar()
+        last_plot=p.transpose()
 
 def mom1map (fits, sensitivity=0.1):
      global last_plot
