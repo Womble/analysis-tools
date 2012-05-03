@@ -1,6 +1,7 @@
 #!/usr/bin/python
 from numpy import *
 from pylab import plot, loglog, semilogx, clf
+from matplotlib.pyplot import gca
 
 def datafile(path):
     lines=[]
@@ -61,14 +62,17 @@ def __main__():
     #h,m=dat[0,3],dat[0,5]
     #g.replot(Gnuplot.Data(sorted([(sqrt(x*x+y*y+z*z),nh2) for x,y,z,nh2        in dat[:,0:4] if nh2>0]), with_='dots'))
     clf();loglog (sdat[:,0],sdat[:,1],'.')
+    gca().lines[-1].set_markeredgecolor(gca().lines[-1].get_markerfacecolor())
     raw_input("enter to continue")
 
     print "molecular abundance"
     loglog (sdat[:,0], sdat[:,3], '.')
+    gca().lines[-1].set_markeredgecolor(gca().lines[-1].get_markerfacecolor())
     raw_input("enter to continue")
 
     print "molecular density"
     loglog (sdat[:,0], sdat[:,1]*sdat[:,3], '.')
+    gca().lines[-1].set_markeredgecolor(gca().lines[-1].get_markerfacecolor())
     raw_input("enter to continue")
 
     try:
@@ -98,17 +102,20 @@ def __main__():
         print 'no inversions in 3-2'
         inv32x,inv32y=[],[]
 
-    clf()
-    loglog(inv10x,inv10y,'x')
-    loglog(inv21x,inv21y,'+')
-    loglog(inv32x,inv32y,'*')
+    if inv10x or inv21x or inv32x:
+        clf()
+        loglog(inv10x,inv10y,'x')
+        loglog(inv21x,inv21y,'+')
+        loglog(inv32x,inv32y,'*')
 
-    raw_input("enter to continue")
-
+        raw_input("enter to continue")
+    
     print "checking for negative values"
     try: 
-        clf()
-        xyplot([(sqrt(x*x+y*y),abs(z)) for x,y,z,h,T,m,n1,n2 in dat[:,0:8] if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)], linestyle='.')
+        negs=[(sqrt(x*x+y*y),abs(z)) for x,y,z,h,T,m,n1,n2 in dat[:,0:8] if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
+        if negs:
+            clf()
+            xyplot(negs, linestyle='.')
         print [(i, (h,T,m,n1,n2)) for (i,(x,y,z,h,T,m,n1,n2)) in enumerate(dat[:,0:8]) if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
     except : print "ok"
     raw_input("enter to continue")
@@ -126,10 +133,10 @@ def __main__():
 
     print "level populations"
     clf()
-
     for i in xrange(min(5,dat.shape[1]-6)):
         loglog(sdat[:,0],sdat[:,4+i]/statWeights[i], '.')
-        loglog(sdat[:,0],sdat[:,4+i])
+        gca().lines[-1].set_markeredgecolor(gca().lines[-1].get_markerfacecolor())
+#        loglog(sdat[:,0],sdat[:,4+i])
         raw_input("level {} (press enter to continue)".format(i))
 
     raw_input("enter to finish")

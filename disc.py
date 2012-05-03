@@ -218,10 +218,11 @@ def pv (im, contSub=False, spatRes=0.625, velRes=0.075):
                 c=sorted(p[:,i])[p.shape[0]/2]
                 p[:,i]-=c
                 
-        srt=sorted(p.flatten())
+        srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
         l=len(srt)
+        extent=np.sqrt(abs(srt[l/50])*abs(srt[49*l/50]))
         clf()
-        imshow(p.transpose(), cmap=cm, vmin=srt[l/10], vmax=srt[49*l/50], interpolation='nearest')
+        imshow(p.transpose(), cmap=cm, vmin=-extent, vmax=extent, interpolation='nearest')
         colorbar()
         last_plot=p.transpose()
 
@@ -232,10 +233,11 @@ def pv (im, contSub=False, spatRes=0.625, velRes=0.075):
                 c=sorted(p[:,i])[p.shape[0]/2]
                 p[:,i]-=c
 
-        srt=sorted(p.flatten())
+        srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
         l=len(srt)
+        extent=np.sqrt(abs(srt[l/50])*abs(srt[49*l/50]))
         clf()
-        imshow(p.transpose(), cmap=cm, vmin=srt[l/10], vmax=srt[99*l/100], interpolation='nearest')
+        imshow(p.transpose(), cmap=cm, vmin=-extent, vmax=extent, interpolation='nearest')
         colorbar()
         last_plot=p.transpose()
 
