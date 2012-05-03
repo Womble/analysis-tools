@@ -1,15 +1,14 @@
 import numpy as np
 from scipy import optimize
-from random import random as rnd, randint as rndint
-from random import normalvariate as nv
+from random import random as rnd, randint as rndint, normalvariate as nv
 import genetic as g
 from complete import cube_convolve
 import pyfits as P
 import sys,os
-from scipy.weave import blitz
 from matplotlib.cm import RdBu_r as cm
 import matplotlib
 from pylab import plot, imshow, clf, colorbar
+import pprocess
 
 cm.set_under((0.0,0.0,0.25))
 cm.set_over ((0.25,0.0,0.0))
@@ -174,6 +173,95 @@ def double_gaussian_fit(im, verbose=False) :
                   res[ -1,i,j]=c
      return res
 
+def double_gaussian_fit_wCentral(im, verbose=False) :
+     "fit double gaussian profiles to the each of the spectra in imcube im"
+     shape=im.shape
+     X=np.arange(float(shape[0]))
+     res=np.empty((7,shape[1],shape[2]))
+     for i in xrange(shape[1]):
+#         f=open('log','a')
+#         f.write(str(i)+'\n')
+#         f.close()
+#     def blah (i):
+         print i
+         for j in xrange(shape[2]): 
+             d=im[:,i,j]
+             c=sorted(d)[shape[0]/2]
+             dc=d.copy()
+             centre=shape[0]/2-8,shape[0]/2+8
+             dc[centre[0]:centre[1]]=c
+             peak  =dc.argmax()
+             trough=dc.argmin()
+             mx,mn=dc[peak]-c,dc[trough]-c
+
+             def centerr(params,x,y):
+                 a,s,m=params
+                 func=np.exp(-(x-m)**2/(2*s*s))
+                 func*=a; func+=c; func-=y
+                 return func
+
+             p,_=optimize.leastsq(centerr,(d[centre[0]:centre[1]].min()-c,3,8),args=(np.arange(16.),d[centre[0]:centre[1]]))
+             centre=gauss(X, [p[0],p[1],p[2]+shape[0]/2-8,0])
+
+             if verbose:
+                 print p
+                 print centre
+
+             def cons ():
+                  r=rndint(0,2)
+                  if r==0:
+                       return np.array((nv(mx,mx/4), rnd()*15, nv(peak,10),\
+                                        nv(-mx,mx/4)*-10,rnd()*15, nv(peak,10),\
+                                        c*nv(1, 0.1)))
+                  elif r==1:
+                       return np.array((nv(mx,mx/4)*10, rnd()*15, nv(peak,10),\
+                                        nv(mn,mn/4)*-10,rnd()*15, nv(trough,10),\
+                                        c*nv(1, 0.1)))
+                  else :
+                       return np.array((nv(mn,mn/4)*10, rnd()*15, nv(trough,10),\
+                                        nv(mn,mn/4)*-10,rnd()*15, nv(trough,10),\
+                                        c*nv(1, 0.1)))
+
+             def err(params,x,y):
+                  a1,s1,m1,a2,s2,m2=params
+                  func1=np.exp(-(x-m1)**2/(2*s1*s1))
+                  func2=np.exp(-(x-m2)**2/(2*s2*s2))
+                  func1*=a1; func2*=a2; func1+=func2; func1+=c; func1-=y; func1+=centre
+                  return func1
+
+             v,success=optimize.leastsq(err, (d[peak]-c, 10, peak , d[trough]-d[peak], 10, trough), args=(X,d))
+             if success!=1:
+                  def foo(params):
+                      #inlined gauss2 (this is the intermost part of the optimisation)
+                       a1,s1,m1,a2,s2,m2,c=params
+                       func1=np.exp(-(X-m1)**2/(2*s1*s1))
+                       func2=np.exp(-(X-m2)**2/(2*s2*s2))
+                       func1*=a1; func2*=a2; func1+=func2; func1+=c; func1+=centre; func1-=d; func1*=func1
+                       return func1.sum()
+    
+                  if not(verbose):
+                       actualstdout = sys.stdout
+                       sys.stdout = open(os.devnull,'w')
+                  #if leastsq doesnt give a goot fit then try to fit with a genetic alg
+                  s=g.optimize(foo, cons, satisfactory=2.51, tolerance=0.001, its=100, hillWalks=2, verbose=verbose, startWalk=True)
+                  r=g.optimize(foo, cons, satisfactory=2.51, tolerance=0.001, its=100, hillWalks=2, verbose=verbose, startWalk=True)
+                  s.run()
+                  r.run()
+                  final=g.optimize(foo, cons, satisfactory=1.0, tolerance=0.0001, pool=s.pool+r.pool, finalWalk=True)
+                  final.run()
+                  if not(verbose):
+                       sys.stdout.close()
+                       sys.stdout = actualstdout
+                  if final.pool[0][0]<=1.5:
+                       res[:,i,j]=final.pool[0][1:]
+                  else:
+                       res[:,i,j]=np.nan
+             else :
+                  for k in xrange(len (v)): res[k,i,j]=v[k]
+                  res[ -1,i,j]=c
+
+     return res
+
 def disc_analysis (path, threshold=0.1, sigma=4, verbose=False):
     """read in and peform a fitting on the fits file at path containing an imcube and write out
 the results to a new fits file called Xfitted.fits of shape [7,x,y] where the 7 planes of the 
@@ -184,7 +272,7 @@ output are fitting parameters amplitude sigma and mean of the 2 gaussians and th
 #    data=[i for i in xrange(im.shape[1]) if im[:,i,:].sum()/im.shape[0]/im.shape[-1] > np.power(10, -1.5)]
     mn,mx=70,130#min(data),max(data)
 #    res=scipy_double_gaussian_fit(im, verbose=verbose)
-    res=double_gaussian_fit(im[:,mn:mx,:], verbose=verbose)
+    res=double_gaussian_fit_wCentral(im[:,mn:mx,:], verbose=verbose)
     ans=np.ones(res.shape, dtype=np.float)
     ans+=np.nan
     shape=res.shape
