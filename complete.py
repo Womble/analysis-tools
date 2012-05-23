@@ -1,9 +1,12 @@
-import numpy,pyfits,os,tarfile,Gnuplot
+import numpy,pyfits,os,tarfile,Gnuplot,pprocess
 from math import exp,log,sqrt,pi,ceil
 from numpy.fft import rfft2,irfft2
 
 g=Gnuplot.Gnuplot()
 g('set style data histeps')
+
+def getfits (path='./'):
+    return [x for x in os.walk(path).next()[2] if len(x)>=5 and x[-5:]=='.fits']
 
 def garray(shape, sigma):
     a=numpy.empty(shape, dtype=float)
@@ -35,6 +38,8 @@ def cube_convolve(imcube, sigma):
     s=[y*2+1 for y in gauss_mask.shape]
     ftg=rfft2(gauss_mask, s)
     ref=(ceil(shape[0]/2.0),ceil(shape[0]/2.0)+shape[0],ceil(shape[1]/2.0),ceil(shape[1]/2.0)+shape[1])
+#    cwrap=lambda x: convolve(x[0],x[1])
+#    pprocess.pmap(cwrap, [(ftg,imcube[i,...]) for i in xrange(imcube.shape[0])])
     for i in xrange(imcube.shape[0]):
         imcube[i,:,:]=irfft2(rfft2(imcube[i,:,:],s)*ftg)[ref[0]:ref[1],ref[2]:ref[3]]
     return imcube

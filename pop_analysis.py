@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from numpy import *
+from scipy import interpolate
 from pylab import plot, loglog, semilogx, clf
 from matplotlib.pyplot import gca
 
@@ -20,6 +21,23 @@ def _f(a,b):
 def xyplot(lis, **kwargs): 
     x,y=apply(zip, lis)
     plot(x,y, **kwargs)
+
+def sortrows (arr, f):
+    "sorts array arr by the ascending value of f applied to each row"
+    x=list(arr)
+    return array(sorted(x, key=f))
+
+lookup={'d':3, 'D':3, 't':4, 'T':4, 'x':5, 'X':5}
+for i in xrange(100):lookup[i]=i+6
+
+def map2grid(dat, value, xpars,ypars,zpars, logScale=False, **kwargs):
+    xmin,xmax,xstep=xpars
+    ymin,ymax,ystep=ypars
+    zmin,zmax,zstep=zpars
+    X,Y,Z=mgrid[xmin:xmax:xstep, ymin:ymax:ystep, zmin:zmax:zstep]
+    points=dat[:,:3]
+    vals=dat[:,lookup[value]]
+    return interpolate.griddata(points,vals,(X,Y,Z))
 
 def __main__():
     path=raw_input("enter path: ")
@@ -84,19 +102,19 @@ def __main__():
 
     try:
         print "population inversion points"
-        inv10x,inv10y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3 in dat[:,0:9] if not(n1/g1>=n2/g2)])
+        inv10x,inv10y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,_,_,_,_,n1,n2,n3 in dat[:,0:13] if not(n1/g1>=n2/g2)])
         print "{} inversions out of {} in 1->0".format(len(inv10x), dat.shape[0])
     except ValueError:
         print 'no inversions in 1-0'
         inv10x,inv10y=[],[]
     try:
-        inv21x,inv21y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3 in dat[:,0:9] if not(n2/g2>=n3/g3)])
+        inv21x,inv21y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,_,_,_,_,n1,n2,n3 in dat[:,0:13] if not(n2/g2>=n3/g3)])
         print "{} inversions out of {} in 1->0".format(len(inv21x), dat.shape[0])
     except ValueError:
         print 'no inversions in 2-1'
         inv21x,inv21y=[],[]
     try:
-        inv32x,inv32y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,n1,n2,n3,n4 in dat[:,0:10] if not(n3/g3>=n4/g4)])
+        inv32x,inv32y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,_,_,_,_,n1,n2,n3,n4 in dat[:,0:14] if not(n3/g3>=n4/g4)])
         print "{} inversions out of {} in 1->0".format(len(inv32x), dat.shape[0])
     except ValueError:
         print 'no inversions in 3-2'
@@ -112,11 +130,11 @@ def __main__():
     
     print "checking for negative values"
     try: 
-        negs=[(sqrt(x*x+y*y),abs(z)) for x,y,z,h,T,m,n1,n2 in dat[:,0:8] if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
+        negs=[(sqrt(x*x+y*y),abs(z)) for x,y,z,h,T,db,vx,vy,vz,m,n1,n2 in dat[:,0:8] if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
         if negs:
             clf()
             xyplot(negs, linestyle='.')
-        print [(i, (h,T,m,n1,n2)) for (i,(x,y,z,h,T,m,n1,n2)) in enumerate(dat[:,0:8]) if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
+        print [(i, (h,T,m,n1,n2)) for (i,(x,y,z,h,T,db,vx,vy,vz,m,n1,n2)) in enumerate(dat[:,0:8]) if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
     except : print "ok"
     raw_input("enter to continue")
 
@@ -134,7 +152,7 @@ def __main__():
     print "level populations"
     clf()
     for i in xrange(min(5,dat.shape[1]-6)):
-        loglog(sdat[:,0],sdat[:,4+i]/statWeights[i], '.')
+        loglog(sdat[:,0],sdat[:,8+i]/statWeights[i], '.')
         gca().lines[-1].set_markeredgecolor(gca().lines[-1].get_markerfacecolor())
 #        loglog(sdat[:,0],sdat[:,4+i])
         raw_input("level {} (press enter to continue)".format(i))

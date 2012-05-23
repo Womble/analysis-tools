@@ -178,6 +178,7 @@ def double_gaussian_fit_wCentral(im, verbose=False) :
      shape=im.shape
      X=np.arange(float(shape[0]))
      res=np.empty((7,shape[1],shape[2]))
+     temp=np.empty(X.shape)
      for i in xrange(shape[1]):
 #         f=open('log','a')
 #         f.write(str(i)+'\n')
@@ -187,25 +188,14 @@ def double_gaussian_fit_wCentral(im, verbose=False) :
          for j in xrange(shape[2]): 
              d=im[:,i,j]
              c=sorted(d)[shape[0]/2]
-             dc=d.copy()
-             centre=shape[0]/2-8,shape[0]/2+8
-             dc[centre[0]:centre[1]]=c
-             peak  =dc.argmax()
-             trough=dc.argmin()
-             mx,mn=dc[peak]-c,dc[trough]-c
+             temp=d.copy()
+             centre=shape[0]/2-8,shape[0]/2+9
+             temp[centre[0]:centre[1]]=[temp[centre[0]]*(1-x/16.)+temp[centre[1]]*x/16. for x in xrange (17)]
+             peak  =temp.argmax()
+             trough=temp.argmin()
+             mx,mn=temp[peak]-c,temp[trough]-c
 
-             def centerr(params,x,y):
-                 a,s,m=params
-                 func=np.exp(-(x-m)**2/(2*s*s))
-                 func*=a; func+=c; func-=y
-                 return func
 
-             p,_=optimize.leastsq(centerr,(d[centre[0]:centre[1]].min()-c,3,8),args=(np.arange(16.),d[centre[0]:centre[1]]))
-             centre=gauss(X, [p[0],p[1],p[2]+shape[0]/2-8,0])
-
-             if verbose:
-                 print p
-                 print centre
 
              def cons ():
                   r=rndint(0,2)
@@ -226,17 +216,17 @@ def double_gaussian_fit_wCentral(im, verbose=False) :
                   a1,s1,m1,a2,s2,m2=params
                   func1=np.exp(-(x-m1)**2/(2*s1*s1))
                   func2=np.exp(-(x-m2)**2/(2*s2*s2))
-                  func1*=a1; func2*=a2; func1+=func2; func1+=c; func1-=y; func1+=centre
+                  func1*=a1; func2*=a2; func1+=func2; func1+=c; func1-=y;
                   return func1
 
-             v,success=optimize.leastsq(err, (d[peak]-c, 10, peak , d[trough]-d[peak], 10, trough), args=(X,d))
+             v,success=optimize.leastsq(err, (d[peak]-c, 10, peak , d[trough]-d[peak], 10, trough), args=(X,temp))
              if success!=1:
                   def foo(params):
                       #inlined gauss2 (this is the intermost part of the optimisation)
                        a1,s1,m1,a2,s2,m2,c=params
                        func1=np.exp(-(X-m1)**2/(2*s1*s1))
                        func2=np.exp(-(X-m2)**2/(2*s2*s2))
-                       func1*=a1; func2*=a2; func1+=func2; func1+=c; func1+=centre; func1-=d; func1*=func1
+                       func1*=a1; func2*=a2; func1+=func2; func1+=c; func1-=d; func1*=func1
                        return func1.sum()
     
                   if not(verbose):
@@ -260,6 +250,11 @@ def double_gaussian_fit_wCentral(im, verbose=False) :
                   for k in xrange(len (v)): res[k,i,j]=v[k]
                   res[ -1,i,j]=c
 
+             if verbose :
+                 plot(d)
+                 plot (temp)
+                 plot (gauss2(np.arange(251.), res[:,i,j]))
+                       
      return res
 
 def disc_analysis (path, threshold=0.1, sigma=4, verbose=False):
@@ -267,8 +262,7 @@ def disc_analysis (path, threshold=0.1, sigma=4, verbose=False):
 the results to a new fits file called Xfitted.fits of shape [7,x,y] where the 7 planes of the 
 output are fitting parameters amplitude sigma and mean of the 2 gaussians and the baseline level"""
     im=cube_convolve(P.getdata(path), sigma)
-    psplit=path.split('.')
-    print(psplit)
+    print('starting: '+path)
 #    data=[i for i in xrange(im.shape[1]) if im[:,i,:].sum()/im.shape[0]/im.shape[-1] > np.power(10, -1.5)]
     mn,mx=70,130#min(data),max(data)
 #    res=scipy_double_gaussian_fit(im, verbose=verbose)
@@ -283,14 +277,18 @@ output are fitting parameters amplitude sigma and mean of the 2 gaussians and th
                   ans[:,i,j]=ele
              else:
                   ans[:,i,j]=(ele[3],ele[4],ele[5],ele[0],ele[1],ele[2],ele[6])
-    try :P.writeto(''.join(psplit[:-1]+['fitted.fits']), ans)
+    try :
+        print('writting: '+path)
+        P.writeto(path[:-5]+'_fitted.fits', ans)
     except IOError as msg: print msg 
     return ans
 
+def continuumSubtract(spec, method=lambda x: sorted(x)[int(len(x)/2)]):
+    return spec-method(spec)
 
 
 #displays
-def pv (im, contSub=False, spatRes=0.625, velRes=0.075):
+def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cmap=cm, cutFrac=0.01):
     global last_plot
 #    fig=figure()
 #    ax=matplotlib.image.NonUniformImage(fig, interpolation='nearest',  extent=[-velRes*p.shape[0]/2.0, velRes*p.shape[0]/2.0, -spatRes*p.shape[1]/2.0, spatRes*p.shape[1]/2.0])
@@ -302,39 +300,58 @@ def pv (im, contSub=False, spatRes=0.625, velRes=0.075):
         if   axis==1: p=im[:,plane,:].copy()
         elif axis==2: p=im[:,:,plane].copy()
         if contSub :
-            for i in xrange(p.shape[1]):
-                c=sorted(p[:,i])[p.shape[0]/2]
-                p[:,i]-=c
+            for i in xrange(p.shape[1]): p[:,i]=continuumSubtract(p[:,i])
                 
         srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
         l=len(srt)
-        extent=np.sqrt(abs(srt[l/50])*abs(srt[49*l/50]))
+        extent=np.sqrt(abs(srt[int(l*cutFrac)])*abs(srt[int((1-cutFrac)*l)]))
         clf()
-        imshow(p.transpose(), cmap=cm, vmin=-extent, vmax=extent, interpolation='nearest')
+        imshow(p.transpose(), cmap=cmap, vmin=-extent, vmax=extent, interpolation='nearest')
         colorbar()
         last_plot=p.transpose()
 
     elif (len (im.shape)==2):
         p=im.copy()
         if contSub :
-            for i in xrange(p.shape[1]):
-                c=sorted(p[:,i])[p.shape[0]/2]
-                p[:,i]-=c
+            for i in xrange(p.shape[1]): p[:,i]=continuumSubtract(p[:,i])
 
         srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
         l=len(srt)
-        extent=np.sqrt(abs(srt[l/50])*abs(srt[49*l/50]))
+        extent=np.sqrt(abs(srt[int(l*cutFrac)])*abs(srt[int((1-cutFrac)*l)]))
         clf()
-        imshow(p.transpose(), cmap=cm, vmin=-extent, vmax=extent, interpolation='nearest')
+        imshow(p.transpose(), cmap=cmap, vmin=-extent, vmax=extent, interpolation='nearest')
         colorbar()
         last_plot=p.transpose()
 
-def mom1map (fits, sensitivity=0.1):
+def mom0map (im, velwidth=0.075):
      global last_plot
-     f=fits[2,:,:].copy()
-     mask=(abs(fits[0,...]/fits[-1,...]))<sensitivity
-     f[mask]=np.nan
-     clf()
-     imshow(f, cmap=cm, vmin=0, vmax=250)
-     colorbar()
-     last_plot=f
+     p=im.sum(0)*velwidth
+     clf();imshow(p, cmap=cm, vmax=p.max()*1.01, vmin=0, interpolation='nearest');colorbar()
+     last_plot=p
+
+def mom1map (im, velwidth=75, contSub=True):
+     global last_plot
+     v=np.linspace(-im.shape[0]/2.0*velwidth, im.shape[0]/2.0*velwidth, im.shape[0]).reshape((im.shape[0],1,1))
+     mcont=im.copy()
+     for i,j in [(x,y) for x in xrange(im.shape[1]) for y in xrange(im.shape[2])]:
+         mcont[:,i,j]=continuumSubtract(mcont[:,i,j])
+     x=mcont.copy()
+     mcont=(abs(mcont)*v).sum(0)/abs(mcont).sum(0)
+     mcont[np.isnan(mcont)]=0
+     last_plot=mcont
+     r=max([abs(x) for x in mcont.flatten() if x<1e99])
+     clf();imshow(mcont, cmap=cm, vmax=r, vmin=-r, interpolation='nearest');colorbar()
+
+
+def mom2map (im, velwidth=75):
+     global last_plot
+     v=np.linspace(-im.shape[0]/2.0*velwidth, im.shape[0]/2.0*velwidth, im.shape[0]).reshape((im.shape[0],1,1))
+     mcont=im.copy()
+     for i,j in [(x,y) for x in xrange(im.shape[1]) for y in xrange(im.shape[2])]:
+         mcont[:,i,j]=continuumSubtract(mcont[:,i,j])
+     mom1map(mcont, velwidth,False)
+     m1=last_plot
+     mcont=np.sqrt((abs(mcont)*(v-m1)**2).sum(0)/abs(mcont).sum(0))
+     mcont[mcont==np.nan]=0
+     last_plot=mcont
+     clf();imshow(mcont, cmap=cm, vmin=0, interpolation='nearest');colorbar()
