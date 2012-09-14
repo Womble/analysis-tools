@@ -1,6 +1,7 @@
 import numpy,pyfits,os,tarfile,Gnuplot,pprocess
 from math import exp,log,sqrt,pi,ceil
 from numpy.fft import rfft2,irfft2
+from scipy import constants as cnst
 
 g=Gnuplot.Gnuplot()
 g('set style data histeps')
@@ -19,6 +20,14 @@ def garray(shape, sigma):
 
 def FWHM2sigma (FWHM): return FWHM/(2*sqrt(2*log(2)))
 
+def next_pow2 (n):
+    if n<0: sign=-1
+    else  : sign=1
+    X=abs(n)
+    ans=1
+    while ans<X: ans*=2
+    return ans
+
 def beam_convolve(arr, sigma):
     "convoles a 2D image with a gaussian profile with sigma in px"
     if len(arr.shape)!=2 or 3*sigma > max(arr.shape): raise ValueError ("arr is not 2d or beam is too wide")
@@ -31,11 +40,12 @@ def beam_convolve(arr, sigma):
 
 def cube_convolve(imcube, sigma):
     "performs a convolution with a gaussian beam of width sigma on each xy plane of the cube"
+    imcube=imcube.copy()
     shape=imcube.shape[1:]
-    if len(shape)!=2 or 3*sigma > max(shape): 
+    if len(shape)!=2 or 3*sigma > max(shape[1:]): 
         raise ValueError ("cube is not a cube or beam is too wide")
     gauss_mask=garray(shape,sigma)
-    s=[y*2+1 for y in gauss_mask.shape]
+    s=[next_pow2(y*1.2) for y in gauss_mask.shape]
     ftg=rfft2(gauss_mask, s)
     ref=(ceil(shape[0]/2.0),ceil(shape[0]/2.0)+shape[0],ceil(shape[1]/2.0),ceil(shape[1]/2.0)+shape[1])
 #    cwrap=lambda x: convolve(x[0],x[1])
@@ -43,6 +53,20 @@ def cube_convolve(imcube, sigma):
     for i in xrange(imcube.shape[0]):
         imcube[i,:,:]=irfft2(rfft2(imcube[i,:,:],s)*ftg)[ref[0]:ref[1],ref[2]:ref[3]]
     return imcube
+
+
+def JypPx2Temp (X,  freq, cellSize):
+    "X is intensity in janskys per cell
+freq is the frequency of the light in m
+cellsize is the size of one cell in steradians"
+    lamb=cnst.speed_of_light/freq
+    return (X*lamb**2)/(cellsize*2760) 
+
+def Temp2JypPx (T, freq, cellSize):
+    "X is brightness temperature in Kelvin
+freq is the frequency of the light in m
+cellsize is the size of one cell in steradians"
+    return T*(cellsize*2760)/lamb**2 
 
 def spec_at(imcube, pos, chanwidth=10):
     x,y=pos

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from numpy import *
 from scipy import interpolate
-from pylab import plot, loglog, semilogx, clf
+from pylab import plot, loglog, semilogx, semilogy, clf
 from matplotlib.pyplot import gca
 
 def datafile(path):
@@ -34,12 +34,28 @@ def map2grid(dat, value, xpars,ypars,zpars, logScale=False, **kwargs):
     xmin,xmax,xstep=xpars
     ymin,ymax,ystep=ypars
     zmin,zmax,zstep=zpars
-    X,Y,Z=mgrid[xmin:xmax:xstep, ymin:ymax:ystep, zmin:zmax:zstep]
+    one=ones((xstep,ystep,zstep))
+    if 'X' in logScale.upper():
+        X=(logspace(log10(xmin),log10(xmax),xstep)).reshape(xstep,1,1)*one
+    else:
+        X=(linspace(xmin,xmax,xstep)).reshape(xstep,1,1)*one
+
+    if 'Y' in logScale.upper():
+        Y=(logspace(log10(ymin),log10(ymax),ystep)).reshape(1,ystep,1)*one
+    else:
+        Y=(linspace(ymin,ymax,ystep)).reshape(1,ystep,1)*one
+
+    if 'Z' in logScale.upper():
+        Z=(logspace(log10(zmin),log10(zmax),zstep)).reshape(1,1,zstep)*one
+    else:
+        Z=(linspace(zmin,zmax,zstep)).reshape(1,1,zstep)*one
+
     points=dat[:,:3]
     vals=dat[:,lookup[value]]
     return interpolate.griddata(points,vals,(X,Y,Z))
 
 def __main__():
+    g1=g2=g3=g4=g5=0
     path=raw_input("enter path: ")
 
     try :dat=datafile (path)
@@ -55,7 +71,7 @@ def __main__():
 
     clf()
     print 'grid points in rz'
-    plot(sqrt((dat[:,:2]**2).sum(1)), abs(dat[:,2]), ',')
+    plot(sqrt((dat[:,:2]**2).sum(1)), dat[:,2], ',')
 
     raw_input("enter to continue")
 
@@ -69,11 +85,10 @@ def __main__():
     semilogx(points, xrange(len(points)), drawstyle='steps-mid')
     raw_input("enter to continue")
 
-    lrange=max(points)-min(points)
-    bins=[min(points)+exp(i/50.)/exp(1)*lrange for i in xrange(51)]
-    histo=list(histogram(points,bins)[0])+[0]
+    bins=logspace(log10(min(points)),log10(max(points)), 51)
+    histo=histogram(points,bins)
     print 'histogram (log spaced) grid points in r'
-    clf();semilogx(bins,histo,drawstyle='steps-mid')
+    clf();semilogx(histo[1][:-1],histo[0],drawstyle='steps-mid')
     raw_input("enter to continue")
 
     print "nh2 density"
@@ -102,20 +117,20 @@ def __main__():
 
     try:
         print "population inversion points"
-        inv10x,inv10y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,_,_,_,_,n1,n2,n3 in dat[:,0:13] if not(n1/g1>=n2/g2)])
+        inv10x,inv10y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,nh2,t,nX,db,vx,vy,vz,n1,n2,n3 in dat[:,0:13] if not(1.01*n1/g1>=n2/g2)])
         print "{} inversions out of {} in 1->0".format(len(inv10x), dat.shape[0])
     except ValueError:
         print 'no inversions in 1-0'
         inv10x,inv10y=[],[]
     try:
-        inv21x,inv21y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,_,_,_,_,n1,n2,n3 in dat[:,0:13] if not(n2/g2>=n3/g3)])
-        print "{} inversions out of {} in 1->0".format(len(inv21x), dat.shape[0])
+        inv21x,inv21y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,nh2,t,nX,db,vx,vy,vz,n1,n2,n3 in dat[:,0:13] if not(1.01*n2/g2>=n3/g3)])
+        print "{} inversions out of {} in 2->1".format(len(inv21x), dat.shape[0])
     except ValueError:
         print 'no inversions in 2-1'
         inv21x,inv21y=[],[]
     try:
-        inv32x,inv32y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,_,_,_,_,_,_,_,n1,n2,n3,n4 in dat[:,0:14] if not(n3/g3>=n4/g4)])
-        print "{} inversions out of {} in 1->0".format(len(inv32x), dat.shape[0])
+        inv32x,inv32y=apply(zip, [(sqrt(x*x+y*y),abs(z)) for x,y,z,nh2,t,nX,db,vx,vy,vz,n1,n2,n3,n4 in dat[:,0:14] if not(1.01*n3/g3>=n4/g4)])
+        print "{} inversions out of {} in 3->2".format(len(inv32x), dat.shape[0])
     except ValueError:
         print 'no inversions in 3-2'
         inv32x,inv32y=[],[]
@@ -125,9 +140,19 @@ def __main__():
         loglog(inv10x,inv10y,'x')
         loglog(inv21x,inv21y,'+')
         loglog(inv32x,inv32y,'*')
-
         raw_input("enter to continue")
-    
+
+        clf()
+        plot(inv10x,inv10y,'x')
+        plot(inv21x,inv21y,'+')
+        plot(inv32x,inv32y,'*')
+        raw_input("enter to continue")
+
+
+
+    clf();plot([sqrt(x*x+y*y) for x,y in dat[:,:2]],[n1*g2/(n2*g1) for x,y,z,nh2,t,nX,db,vx,vy,vz,n1,n2,n3 in dat[:,0:13]],'.');semilogy()
+    raw_input("enter to continue")
+
     print "checking for negative values"
     try: 
         negs=[(sqrt(x*x+y*y),abs(z)) for x,y,z,h,T,db,vx,vy,vz,m,n1,n2 in dat[:,0:8] if (h<=0 or T<=0 or m<=0 or n1<=0 or n2<=0)]
@@ -145,7 +170,8 @@ def __main__():
     if de>1e6: de*=6.626068e-34
     elif de>1: de*=1.60217646e-19
     clf()
-    semilogx(sqrt((dat[:,:3]**2).sum(1)),(log(dat[:,7]*g1/dat[:,6]/g2)*(kb/de)*-1)**-1, 'r.')
+    semilogx(sqrt((dat[:,:3]**2).sum(1)),(log(dat[:,11]*g1/dat[:,10]/g2)*(-kb/de))**-1, 'r.')
+    raw_input("enter to continue")
     semilogx(sqrt((dat[:,:3]**2).sum(1)), dat[:,4], 'g.')
     raw_input("enter to continue")
 

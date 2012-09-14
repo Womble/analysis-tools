@@ -7,7 +7,7 @@ import pyfits as P
 import sys,os
 from matplotlib.cm import RdBu_r as cm
 import matplotlib
-from pylab import plot, imshow, clf, colorbar
+from pylab import plot, imshow, clf, colorbar, figure, draw ,savefig
 import pprocess
 
 cm.set_under((0.0,0.0,0.25))
@@ -45,6 +45,50 @@ def almost_eq (a, b, diff=0.1):
         (b <= a*(1+diff) and a*(1-diff) <= b):
            return True
      else :return False
+
+def produce_figs (path, name=''):
+    hdr=P.getheader(path)
+    im=P.getdata(path)
+    nchan=hdr.get('NAXIS3')
+    vcentre=nchan/2
+    pixels=hdr.get('NAXIS2')
+    pcentre=pixels/2
+    imres=round(hdr.get('CDELT2')*3600*10000)/10000
+    velres=hdr.get('CDELT3')
+    im_cs=im-(im[0,...]+im[-1,...])/2
+    mom0=im_cs[:round(vcentre-500/velres),...].sum(0)*velres/1000.+im_cs[round(vcentre+500/velres):,...].sum(0)*velres/1000. #messing about with centre is to avoid evelope emission/absorbtion, needs to talk to paola about weather or not this is kosher
+    extent=sorted(abs(mom0).flat)[mom0.size*999/1000]
+    F=figure();clf();imshow(mom0, interpolation='nearest', cmap=cm , vmin=-extent, vmax=extent, origin='image');c=colorbar();c.set_label('K km/s')
+    F.axes[0].set_xticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xlabel('x "')
+    F.axes[0].set_ylabel('y "')
+    draw()
+    savefig(name+'_contSub.png')
+    cbar=pv(im_cs[:,pcentre,:],contSub=False, spatRes=imres, velRes=velres/1000., cutFrac=0.001)
+#    cbar.set_label('K')
+    F.axes[0].set_xticks([x*nchan for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xticklabels([round(10000*(x-0.5)*nchan*velres/1000.)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_ylabel('x "')
+    F.axes[0].set_xlabel('v, km/s')
+    draw()
+    savefig(name+'_PV_centre.png')
+    im_cs[round(vcentre-500/velres):round(vcentre+500/velres),...]=(im_cs[round(vcentre-500/velres),...]+im_cs[round(vcentre+500/velres),...])/2
+    mask=abs(mom0)>abs(mom0).max()/1000
+    cbar=mom1map(im_cs*mask, contSub=False, velwidth=velres/1000.)
+#    cbar.set_label('km/s')
+    F.axes[0].set_xticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xlabel('x "')
+    F.axes[0].set_ylabel('y "')
+    draw()
+    savefig(name+'_mom1.png')
 
 def genetic_double_gaussian_fit(im, verbose=False) :
      "fit double gaussian profiles to the each of the spectra in imcube im\nold, dont use"
@@ -288,10 +332,14 @@ def continuumSubtract(spec, method=lambda x: sorted(x)[int(len(x)/2)]):
 
 
 #displays
-def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cmap=cm, cutFrac=0.01):
+def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=False, **kwargs):
     global last_plot
-#    fig=figure()
-#    ax=matplotlib.image.NonUniformImage(fig, interpolation='nearest',  extent=[-velRes*p.shape[0]/2.0, velRes*p.shape[0]/2.0, -spatRes*p.shape[1]/2.0, spatRes*p.shape[1]/2.0])
+
+    def contfind(spec):
+        f=lambda x:x[0]
+	return f(spec)
+#        f=lambda x: np.sqrt(np.abs(spec-x)).sum()
+#        return optimize.fmin(f, spec[0], disp=0)[0]
 
     if (len (im.shape)==3):
         plane=float(raw_input("plane number for pv slice: "))
@@ -300,50 +348,65 @@ def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cmap=cm, cutFrac=0.01):
         if   axis==1: p=im[:,plane,:].copy()
         elif axis==2: p=im[:,:,plane].copy()
         if contSub :
-            for i in xrange(p.shape[1]): p[:,i]=continuumSubtract(p[:,i])
-                
-        srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
-        l=len(srt)
-        extent=np.sqrt(abs(srt[int(l*cutFrac)])*abs(srt[int((1-cutFrac)*l)]))
+            for i in xrange(p.shape[1]): p[:,i]=continuumSubtract(p[:,i], contfind)
         clf()
-        imshow(p.transpose(), cmap=cmap, vmin=-extent, vmax=extent, interpolation='nearest')
-        colorbar()
-        last_plot=p.transpose()
+        if fractional:
+            #assuming here for fractional that channel 0 is all cont emission
+            if   axis==1: q=im[0,plane,:].reshape((p.shape[1],1))
+            elif axis==2: q=im[0,:,plane].reshape((p.shape[1],1))
+            extent=abs(p.transpose()/q).max()
+            imshow(p.transpose()/q, cmap=cm, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
+            colorbar()
+            last_plot=p.transpose()/q
+        else:
+            srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
+            l=len(srt)
+            extent=max(abs(srt[int(l*cutFrac)]),abs(srt[int((1-cutFrac)*l)]))
+            imshow(p.transpose(),   cmap=cm, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
+            colorbar()
+            last_plot=p.transpose()
 
     elif (len (im.shape)==2):
         p=im.copy()
         if contSub :
-            for i in xrange(p.shape[1]): p[:,i]=continuumSubtract(p[:,i])
+            for i in xrange(p.shape[1]): p[:,i]=continuumSubtract(p[:,i], contfind)
 
         srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
         l=len(srt)
-        extent=np.sqrt(abs(srt[int(l*cutFrac)])*abs(srt[int((1-cutFrac)*l)]))
+        extent=max(abs(srt[int(l*cutFrac)]),abs(srt[int((1-cutFrac)*l)]))
         clf()
-        imshow(p.transpose(), cmap=cmap, vmin=-extent, vmax=extent, interpolation='nearest')
+        imshow(p.transpose(), cmap=cm, vmin=-extent, vmax=extent, interpolation='nearest', origin='image', **kwargs)
         colorbar()
         last_plot=p.transpose()
 
-def mom0map (im, velwidth=0.075):
+def mom0map (im, velwidth=0.075, **kwargs):
      global last_plot
      p=im.sum(0)*velwidth
-     clf();imshow(p, cmap=cm, vmax=p.max()*1.01, vmin=0, interpolation='nearest');colorbar()
+     clf();imshow(p, cmap=cm, vmax=p.max()*1.01, vmin=0, interpolation='nearest', origin='image', **kwargs);cbar=colorbar()
      last_plot=p
+     cbar.set_label('K km/s')
+     draw()
+     return cbar
 
-def mom1map (im, velwidth=75, contSub=True):
+def mom1map (im, velwidth=0.075, contSub=True, **kwargs):
      global last_plot
      v=np.linspace(-im.shape[0]/2.0*velwidth, im.shape[0]/2.0*velwidth, im.shape[0]).reshape((im.shape[0],1,1))
      mcont=im.copy()
-     for i,j in [(x,y) for x in xrange(im.shape[1]) for y in xrange(im.shape[2])]:
-         mcont[:,i,j]=continuumSubtract(mcont[:,i,j])
+     if contSub:
+         for i,j in [(x,y) for x in xrange(im.shape[1]) for y in xrange(im.shape[2])]:
+             mcont[:,i,j]=continuumSubtract(mcont[:,i,j])
      x=mcont.copy()
      mcont=(abs(mcont)*v).sum(0)/abs(mcont).sum(0)
      mcont[np.isnan(mcont)]=0
      last_plot=mcont
      r=max([abs(x) for x in mcont.flatten() if x<1e99])
-     clf();imshow(mcont, cmap=cm, vmax=r, vmin=-r, interpolation='nearest');colorbar()
+     clf();imshow(mcont, cmap=cm, vmax=r, vmin=-r, interpolation='nearest', origin='image', **kwargs);
+     cbar=colorbar()
+     cbar.set_label('km/s')
+     draw()
+     return cbar
 
-
-def mom2map (im, velwidth=75):
+def mom2map (im, velwidth=75, **kwargs):
      global last_plot
      v=np.linspace(-im.shape[0]/2.0*velwidth, im.shape[0]/2.0*velwidth, im.shape[0]).reshape((im.shape[0],1,1))
      mcont=im.copy()
@@ -354,4 +417,7 @@ def mom2map (im, velwidth=75):
      mcont=np.sqrt((abs(mcont)*(v-m1)**2).sum(0)/abs(mcont).sum(0))
      mcont[mcont==np.nan]=0
      last_plot=mcont
-     clf();imshow(mcont, cmap=cm, vmin=0, interpolation='nearest');colorbar()
+     clf();imshow(mcont, cmap=cm, vmin=0, interpolation='nearest', origin='image', **kwargs);cbar=colorbar()
+     cbar.set_label('km/s')
+     draw()
+     return cbar
