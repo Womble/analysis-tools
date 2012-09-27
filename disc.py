@@ -5,13 +5,14 @@ import genetic as g
 from complete import cube_convolve
 import pyfits as P
 import sys,os
+from complete import cube_convolve
 from matplotlib.cm import RdBu_r as cm
 import matplotlib
 from pylab import plot, imshow, clf, colorbar, figure, draw ,savefig
 import pprocess
 
-cm.set_under((0.0,0.0,0.25))
-cm.set_over ((0.25,0.0,0.0))
+cm.set_under((0.0,0.0,0.35))
+cm.set_over ((0.35,0.0,0.0))
 cm.set_bad  ((0.0,0.25,0.0))
 
 last_plot=[]
@@ -49,13 +50,14 @@ def almost_eq (a, b, diff=0.1):
 def produce_figs (path, name=''):
     hdr=P.getheader(path)
     im=P.getdata(path)
+    cube_convolve(im,1.0)
     nchan=hdr.get('NAXIS3')
     vcentre=nchan/2
     pixels=hdr.get('NAXIS2')
     pcentre=pixels/2
     imres=round(hdr.get('CDELT2')*3600*10000)/10000
     velres=hdr.get('CDELT3')
-    im_cs=im-(im[0,...]+im[-1,...])/2
+    im_cs=im-im[0,...]
     mom0=im_cs[:round(vcentre-500/velres),...].sum(0)*velres/1000.+im_cs[round(vcentre+500/velres):,...].sum(0)*velres/1000. #messing about with centre is to avoid evelope emission/absorbtion, needs to talk to paola about weather or not this is kosher
     extent=sorted(abs(mom0).flat)[mom0.size*999/1000]
     F=figure();clf();imshow(mom0, interpolation='nearest', cmap=cm , vmin=-extent, vmax=extent, origin='image');c=colorbar();c.set_label('K km/s')
@@ -67,7 +69,7 @@ def produce_figs (path, name=''):
     F.axes[0].set_ylabel('y "')
     draw()
     savefig(name+'_contSub.png')
-    cbar=pv(im_cs[:,pcentre,:],contSub=False, spatRes=imres, velRes=velres/1000., cutFrac=0.001)
+    cbar=pv(im_cs[:,pcentre,:],contSub=False, spatRes=imres, velRes=velres/1000., cutFrac=0.003)
 #    cbar.set_label('K')
     F.axes[0].set_xticks([x*nchan for x in [0,0.25,0.5,0.75,1]])
     F.axes[0].set_xticklabels([round(10000*(x-0.5)*nchan*velres/1000.)/10000. for x in [0,0.25,0.5,0.75,1]])
@@ -332,7 +334,7 @@ def continuumSubtract(spec, method=lambda x: sorted(x)[int(len(x)/2)]):
 
 
 #displays
-def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=False, **kwargs):
+def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=False, cmap=cm, **kwargs):
     global last_plot
 
     def contfind(spec):
@@ -355,14 +357,14 @@ def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=
             if   axis==1: q=im[0,plane,:].reshape((p.shape[1],1))
             elif axis==2: q=im[0,:,plane].reshape((p.shape[1],1))
             extent=abs(p.transpose()/q).max()
-            imshow(p.transpose()/q, cmap=cm, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
+            imshow(p.transpose()/q, cmap=cmap, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
             colorbar()
             last_plot=p.transpose()/q
         else:
             srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
             l=len(srt)
             extent=max(abs(srt[int(l*cutFrac)]),abs(srt[int((1-cutFrac)*l)]))
-            imshow(p.transpose(),   cmap=cm, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
+            imshow(p.transpose(),   cmap=cmap, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
             colorbar()
             last_plot=p.transpose()
 
@@ -375,7 +377,7 @@ def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=
         l=len(srt)
         extent=max(abs(srt[int(l*cutFrac)]),abs(srt[int((1-cutFrac)*l)]))
         clf()
-        imshow(p.transpose(), cmap=cm, vmin=-extent, vmax=extent, interpolation='nearest', origin='image', **kwargs)
+        imshow(p.transpose(), cmap=cmap, vmin=-extent, vmax=extent, interpolation='nearest', origin='image', **kwargs)
         colorbar()
         last_plot=p.transpose()
 
