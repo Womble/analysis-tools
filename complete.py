@@ -2,11 +2,12 @@ import numpy,pyfits,os,tarfile,Gnuplot,pprocess
 from math import exp,log,sqrt,pi,ceil
 from numpy.fft import fft2,ifft2
 from scipy import constants as cnst
+from scipy.interpolate import griddata
 import numpy as np
+import pprocess as pp
 from pylab import imshow
 
-g=Gnuplot.Gnuplot()
-g('set style data histeps')
+g=[]
 
 def getfits (path='./'):
     return [x for x in os.walk(path).next()[2] if len(x)>=5 and x[-5:]=='.fits']
@@ -19,6 +20,28 @@ def garray(shape, sigma):
             a[i,j]=exp(-1*sqrt((i-midi)**2+(j-midj)**2)**2 / (2*sigma*sigma))/(sigma*sqrt(2*pi))**2
 #exp(-1*(i-midi)**2 / (2*sigma*sigma))*exp(-1*(j-midj)**2 / (2*sigma*sigma))/(sqrt(2*pi*sigma**2))    
     return a
+
+def almost_eq (a, b, diff=0.01):
+    if type(a)==type(b)==np.ndarray:
+        return (abs(a-b) <= diff) | (abs((a-b)/a) <= diff) 
+    else:
+        return abs(a-b) <= diff   or abs((a-b)/a) <= diff 
+
+def continuum_subtract(path):
+    im=pyfits.getdata(path)
+    if   almost_eq(im[0,...],im[-1,...],0.001).all():
+        im_cs=im-im[0,...]
+    elif almost_eq(im[0:10,...].mean(0),im[0,...],0.001).all():
+        im_cs=im-im[0,...]
+    elif almost_eq(im[-11:,...].mean(0),im[-1,...],0.001).all():
+        im_cs=im-im[-1,...]
+    else:
+        s=raw_input("please specify a channel number or range to use as continuum").split(':')
+        if len(s)==1: im_cs=im=im[int(s[0]),...]
+        else:         im_cs=im=im[int(s[0]):int(s[1]),...]
+        
+    pyfits.writeto(''.join(path.split('.')[:-1])+'_contSub.fits', data=im_cs, header=pyfits.getheader(path))
+    print 'done '+path
 
 def FWHM2sigma (FWHM): return FWHM/(2*sqrt(2*log(2)))
 
@@ -40,21 +63,6 @@ def beam_convolve(arr, sigma):
         ftg=rfft2(gauss_mask, s)
         return irfft2(rfft2(arr,s)*ftg)
 
-#def cube_convolve(imcube, sigma):
-#    "performs a convolution with a gaussian beam of width sigma on each xy plane of the cube"
-#    imcube=imcube.copy()
-#    shape=imcube.shape[1:]
-#    if len(shape)!=2 or 3*sigma > max(shape[1:]): 
-#        raise ValueError ("cube is not a cube or beam is too wide")
-#    gauss_mask=garray(shape,sigma)
-#    s=[next_pow2(y+101) for y in gauss_mask.shape]
-#    ftg=fft2(gauss_mask, s)
-#    cwrap=lambda x: convolve(x[0],x[1])
-#    pprocess.pmap(cwrap, [(ftg,imcube[i,...]) for i in xrange(imcube.shape[0])])
-#    for i in xrange(imcube.shape[0]):
-#        imcube[i,:,:]=ifft2(fft2(imcube[i,:,:],s)*ftg)[100:100+shape[0],100:100+shape[1]]
-#    return imcube
-
 def cube_convolve(imcube, sigma):
     "performs a convolution with a gaussian beam of width sigma on each yz plane of the cube"
 #    imcube=imcube.copy()
@@ -63,27 +71,83 @@ def cube_convolve(imcube, sigma):
         raise ValueError ("cube is not a cube")
     gauss_mask=garray(shape,sigma)
     s=[next_pow2(y*2+1) for y in gauss_mask.shape]
-    ftg=fft2(gauss_mask, s).reshape([1]+s)
-    imcube[...]=np.real(ifft2(fft2(imcube,s)*ftg)[:,shape[0]/2:3*shape[0]/2, shape[1]/2:3*shape[1]/2])
- #   return np.real(imcube[:,shape[0]/2:3*shape[0]/2, shape[1]/2:3*shape[1]/2])
-
+    ftg=fft2(gauss_mask, s).reshape(s)
+    for i in xrange(imcube.shape[0]):
+        imcube[i,...]=np.real(ifft2(fft2(imcube[i,...],s)*ftg)[shape[0]/2:3*shape[0]/2, shape[1]/2:3*shape[1]/2])
+    return imcube
+ 
 def sqArcSec2Str(n):
     return n/(3600.0)**2*(pi/180)**2
 
 def JypPx2Temp (J,  freq, cellWidth):
     """X is intensity in janskys per cell
 freq is the frequency of the light in Hz
-cellsize is the size of one cell in steradians"""
+cellWidth is the size of one cell in arcsec"""
     lamb=cnst.speed_of_light/freq*1000 #lambda in mm
     return 13.6 * (lamb/(cellWidth*pi/4))**2 * J
 
-def Temp2JypPx (T, freq, cellSize):
-    """X is brightness temperature in Kelvin
+    T = 13.6 * (lamb/(cellWidth*pi/4))**2 * J
+
+def Temp2JypPx (T, freq, cellWidth):
+    """T is brightness temperature in Kelvin
 freq is the frequency of the light in Hz
-cellsize is the size of one cell in steradians"""
-    lamb=cnst.speed_of_light/freq
+cellWidth is the size of one cell in arcsec"""
+    lamb=cnst.speed_of_light/freq*1000
     return T / (13.6 * (lamb/(cellWidth*pi/4))**2)
 
+def convolve (arr1, arr2):
+    "convolves 2 arrays together with fft, arrays will be zero padded to equal size"
+    if max(len(arr1.shape), len(arr2.shape)) > 2: raise ValueError("only dealing with 2d convolves here thankyou")
+    s=(int(max(arr1.shape[0],arr2.shape[0])*1.5),int(max(arr1.shape[1],arr2.shape[1])*1.5))
+    return irfft2(rfft2(arr1,s)*rfft2(arr2,s))
+
+def cartesian2polar (grid):
+    "converts and interpolates a 2D cartesian grid to a polar one"
+    X,Y=np.mgrid[0.0:grid.shape[0],0:grid.shape[1]]
+    X-=X.max()/2.0
+    Y-=Y.max()/2.0
+    R=np.sqrt(X**2+Y**2)
+    PHI=np.arctan2(Y,X)
+    r,phi=np.mgrid[0.1:X.max():1.0*X.max()/grid.shape[0], -pi+2*pi/grid.shape[1]:pi:2*pi/grid.shape[1]]
+    out=griddata(zip(R.ravel(), PHI.ravel()), grid.ravel(), (r,phi), method='linear')
+    out2=griddata(zip(R.ravel(), PHI.ravel()), grid.ravel(), (r,phi), method='nearest')
+    out[np.isnan(out)]=out2[np.isnan(out)]
+    return out
+
+def polar2cartesian (grid):
+    "converts and interpolates a 2D polar (r,phi) grid to a cartesian  one"
+    R,PHI=np.mgrid[0:grid.shape[0], -pi:pi:2*pi/grid.shape[1]]
+    Y=R*np.sin(PHI)
+    X=R*np.cos(PHI)
+    x,y=np.mgrid[-R.max():R.max():1.0*R.max()/grid.shape[0]*2,-R.max():R.max():1.0*R.max()/grid.shape[1]*2]
+    return griddata(zip(X.ravel(), Y.ravel()), grid.ravel(), (x,y), method='linear')
+
+def cartesian2cylindical (grid, z=0):
+    """converts and interpolates a 3D cartesian grid to a cylindrical one
+z is the number of the z axis, defualts to 0 (first)"""
+    if not(len(grid.shape)==3): raise IndexError 
+    out=np.zeros(grid.shape)
+    if z==0: return np.array([x for x in  pp.pmap(cartesian2polar, [grid[i,...] for i in xrange(grid.shape[0])], limit=6)]) 
+    if z==1: return np.array([x for x in  pp.pmap(cartesian2polar, [grid[:,i,:] for i in xrange(grid.shape[1])], limit=6)]) 
+    if z==2: return np.array([x for x in  pp.pmap(cartesian2polar, [grid[...,i] for i in xrange(grid.shape[2])], limit=6)]) 
+
+def Average(grid, axis=-1):
+    grid[...]=grid.mean(axis).reshape((grid.shape[0],1))
+    return grid
+
+def azimuthalAverage (grid, z=0):
+    """averages an x,y,z cube in phi about z
+z=axis number to average around"""
+    if not(len(grid.shape)==3): raise IndexError 
+    out=np.zeros(grid.shape)
+    f=lambda x: polar2cartesian(Average(cartesian2polar(x)))
+    if z==0: return np.array([x for x in  pp.pmap(f, [grid[i,...] for i in xrange(grid.shape[0])], limit=6)]) 
+    if z==1: return np.array([x for x in  pp.pmap(f, [grid[:,i,:] for i in xrange(grid.shape[1])], limit=6)]) 
+    if z==2: return np.array([x for x in  pp.pmap(f, [grid[...,i] for i in xrange(grid.shape[2])], limit=6)]) 
+
+
+
+#old crap
 def spec_at(imcube, pos, chanwidth=10):
     x,y=pos
     shape=imcube.shape
@@ -134,12 +198,6 @@ def datafile(path):
     return numpy.array(lines)
 
 
-def convolve (arr1, arr2):
-    "convolves 2 arrays together with fft, arrays will be zero padded to equal size"
-    if max(len(arr1.shape), len(arr2.shape)) > 2: raise ValueError("only dealing with 2d convolves here thankyou")
-    s=(int(max(arr1.shape[0],arr2.shape[0])*1.5),int(max(arr1.shape[1],arr2.shape[1])*1.5))
-    return irfft2(rfft2(arr1,s)*rfft2(arr2,s))
- 
 def single_line (path, sigma=27/(2*sqrt(2*log(2))), chanwidth=100, replot=False):
     im=pyfits.getdata(path)
     data=line(im,sigma,chanwidth)

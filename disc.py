@@ -41,13 +41,47 @@ def gauss (x, params):
      result+=c
      return result
 
-def almost_eq (a, b, diff=0.1):
-     if (a <= b*(1+diff) and b*(1-diff) <= a) or\
-        (b <= a*(1+diff) and a*(1-diff) <= b):
-           return True
-     else :return False
+def almost_eq (a, b, diff=0.01):
+    if type(a)==type(b)==np.ndarray:
+        return (abs(a-b) <= diff) | (abs((a-b)/a) <= diff) 
+    else:
+        return abs(a-b) <= diff   or abs((a-b)/a) <= diff
+
+def pvfit (arr, f, init_args_guess):
+    """arr: a 2D array 
+f: a function taking at least 2 parameters, the first of which is the x-cord eg f=lambda x,m,c: m*x+c for straight line fit
+init_args_guess: a list of initial guess for the arfs in f eg [1,0] for f=1*x+0
+
+fits the [1:] params of f to minimise the distance between function and pixel weighted by pixel value
+"""
+    pos=np.mgrid[0:arr.shape[0],0:arr.shape[1]]
+
+    def func(args):
+        f2=lambda x: f(x, *args)
+        return ((f2(pos[0,...])-pos[1,...])**2 * arr).sum()        
+
+    return optimize.fmin_bfgs(func, init_args_guess, maxiter=100)
+
+
+
+def decorate_image(F, pixels=201,imres=0.005):
+    F.axes[0].set_xticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xlabel('x "')
+    F.axes[0].set_ylabel('y "')
+
+def decorate_pv (F, pixels=201, imres=0.005, nchan=251, velres=100):
+    F.axes[0].set_xticks([x*nchan for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_xticklabels([round(10000*(x-0.5)*nchan*velres/1000.)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
+    F.axes[0].set_ylabel('x "')
+    F.axes[0].set_xlabel('v km/s')
 
 def produce_figs (path, name=''):
+    if name=='': name=''.join(path.split('.')[:-1])
     hdr=P.getheader(path)
     im=P.getdata(path)
     cube_convolve(im,1.0)
@@ -57,38 +91,26 @@ def produce_figs (path, name=''):
     pcentre=pixels/2
     imres=round(hdr.get('CDELT2')*3600*10000)/10000
     velres=hdr.get('CDELT3')
-    im_cs=im-im[0,...]
-    mom0=im_cs[:round(vcentre-500/velres),...].sum(0)*velres/1000.+im_cs[round(vcentre+500/velres):,...].sum(0)*velres/1000. #messing about with centre is to avoid evelope emission/absorbtion, needs to talk to paola about weather or not this is kosher
+    im_cs=im-im[-1,...]
+    
+    mom0=im_cs[:round(vcentre-500/velres),...].sum(0)*velres/1000.+im_cs[round(vcentre+500/velres):,...].sum(0)*velres/1000. #messing about with centre is to avoid evelope emission/absorbtion, needs to talk to paola about whether or not this is kosher
     extent=sorted(abs(mom0).flat)[mom0.size*999/1000]
     F=figure();clf();imshow(mom0, interpolation='nearest', cmap=cm , vmin=-extent, vmax=extent, origin='image');c=colorbar();c.set_label('K km/s')
-    F.axes[0].set_xticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_xticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_xlabel('x "')
-    F.axes[0].set_ylabel('y "')
+    decorate_image(F, pixels,imres)
     draw()
     savefig(name+'_contSub.png')
+    
     cbar=pv(im_cs[:,pcentre,:],contSub=False, spatRes=imres, velRes=velres/1000., cutFrac=0.003)
-#    cbar.set_label('K')
-    F.axes[0].set_xticks([x*nchan for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_xticklabels([round(10000*(x-0.5)*nchan*velres/1000.)/10000. for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_ylabel('x "')
-    F.axes[0].set_xlabel('v, km/s')
+    cbar.set_label('K')
+    decorate_pv(F, pixels,imres, nchan,velres)
     draw()
     savefig(name+'_PV_centre.png')
+    
     im_cs[round(vcentre-500/velres):round(vcentre+500/velres),...]=(im_cs[round(vcentre-500/velres),...]+im_cs[round(vcentre+500/velres),...])/2
     mask=abs(mom0)>abs(mom0).max()/1000
     cbar=mom1map(im_cs*mask, contSub=False, velwidth=velres/1000.)
-#    cbar.set_label('km/s')
-    F.axes[0].set_xticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_xticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_yticks([x*pixels for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_yticklabels([round(10000*(x-0.5)*pixels*imres)/10000. for x in [0,0.25,0.5,0.75,1]])
-    F.axes[0].set_xlabel('x "')
-    F.axes[0].set_ylabel('y "')
+    cbar.set_label('km/s')
+    decorate_image(F, pixels,imres)
     draw()
     savefig(name+'_mom1.png')
 
@@ -358,15 +380,17 @@ def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=
             elif axis==2: q=im[0,:,plane].reshape((p.shape[1],1))
             extent=abs(p.transpose()/q).max()
             imshow(p.transpose()/q, cmap=cmap, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
-            colorbar()
             last_plot=p.transpose()/q
+            return colorbar()
+
         else:
             srt=sorted(list(p[:120,:].flatten())+list(p[130:,:].flatten()))
             l=len(srt)
             extent=max(abs(srt[int(l*cutFrac)]),abs(srt[int((1-cutFrac)*l)]))
             imshow(p.transpose(),   cmap=cmap, vmax=extent, vmin=-extent, interpolation='nearest', origin='image')
-            colorbar()
             last_plot=p.transpose()
+            return colorbar()
+
 
     elif (len (im.shape)==2):
         p=im.copy()
@@ -378,13 +402,14 @@ def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=
         extent=max(abs(srt[int(l*cutFrac)]),abs(srt[int((1-cutFrac)*l)]))
         clf()
         imshow(p.transpose(), cmap=cmap, vmin=-extent, vmax=extent, interpolation='nearest', origin='image', **kwargs)
-        colorbar()
         last_plot=p.transpose()
+        return colorbar()
+
 
 def mom0map (im, velwidth=0.075, **kwargs):
      global last_plot
      p=im.sum(0)*velwidth
-     clf();imshow(p, cmap=cm, vmax=p.max()*1.01, vmin=0, interpolation='nearest', origin='image', **kwargs);cbar=colorbar()
+     clf();imshow(p, cmap=cm, vmax=p.max()*1.01, interpolation='nearest', origin='image', **kwargs);cbar=colorbar()
      last_plot=p
      cbar.set_label('K km/s')
      draw()
