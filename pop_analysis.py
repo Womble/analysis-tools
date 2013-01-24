@@ -1,8 +1,10 @@
 #!/usr/bin/python
 from numpy import *
 from scipy import interpolate
-from pylab import plot, loglog, semilogx, semilogy, clf
+from pylab import plot, loglog, semilogx, semilogy, clf, imshow
+import pylab as plt
 from matplotlib.pyplot import gca
+
 
 def datafile(path):
     lines=[]
@@ -71,12 +73,28 @@ def __main__():
 
     clf()
     print 'grid points in rz'
-    plot(sqrt((dat[:,:2]**2).sum(1)), dat[:,2], ',')
+#    plot(sqrt((dat[:,:2]**2).sum(1)), dat[:,2], ',')
+
+    r,z = sqrt((dat[:,:2]**2).sum(1)), dat[:,2]
+    H, xedges, yedges = histogram2d(r, z, bins=(75, 75))
+    clf();plt.imshow(log10(H.T+0.1), vmin=0, interpolation='nearest',origin='image', cmap=plt.cm.gist_heat)
+    gca().set_xticks([x for x in gca().get_xticks() if x>=0 and x<len(xedges)])
+    gca().set_yticks([y for y in gca().get_yticks() if y>=0 and y<len(yedges)])
+    gca().set_xticklabels(['%.2f'%xedges[i] for i in gca().get_xticks()])
+    gca().set_yticklabels(['%.2f'%yedges[i] for i in gca().get_yticks()])
+    plt.colorbar();plt.draw()
 
     raw_input("enter to continue")
 
     print 'grid points in log rz'
-    clf();loglog(sqrt((dat[:,:2]**2).sum(1)), abs(dat[:,2]), ',')
+    H, xedges, yedges = histogram2d(log10(r), log10(abs(z)), bins=75)
+    clf();plt.imshow(log10(H.T+0.1), vmin=0, interpolation='nearest',origin='image', cmap=plt.cm.gist_heat);plt.colorbar();
+    gca().set_xticks([x for x in gca().get_xticks() if x>=0 and x<len(xedges)])
+    gca().set_yticks([y for y in gca().get_yticks() if y>=0 and y<len(yedges)])
+    gca().set_xticklabels(['%.2f'%(xedges[i]-log10(1.49598e11)) for i in gca().get_xticks()])
+    gca().set_yticklabels(['%.2f'%(yedges[i]-log10(1.49598e11)) for i in gca().get_yticks()])
+    plt.draw()
+
     raw_input("enter to continue")
 
     points=sorted([sqrt(x*x+y*y+z*z) for x,y,z in dat[:,0:3]])

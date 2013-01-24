@@ -1,6 +1,6 @@
 import numpy,pyfits,os,tarfile,Gnuplot,pprocess
 from math import exp,log,sqrt,pi,ceil
-from numpy.fft import fft2,ifft2
+from numpy.fft import fft2,ifft2, irfft2, rfft2
 from scipy import constants as cnst
 from scipy.interpolate import griddata
 import numpy as np
@@ -62,6 +62,19 @@ def beam_convolve(arr, sigma):
         s=[y*2 for y in gauss_mask.shape]
         ftg=rfft2(gauss_mask, s)
         return irfft2(rfft2(arr,s)*ftg)
+
+def degrade_arr (arr, axis, factor):
+    s=list(arr.shape)
+    s[axis]/=factor
+    new=np.zeros(s, dtype=arr.dtype)
+    for i in xrange(s[axis]):
+        sl1=[slice(0,-1) for _ in s]
+        sl1[axis]=i
+        sl2=[slice(0,-1) for _ in s]
+        sl2[axis]=slice(i*factor,(i+1)*factor)
+        new[sl1]=arr[sl2].mean(axis)
+    return new
+
 
 def cube_convolve(imcube, sigma):
     "performs a convolution with a gaussian beam of width sigma on each yz plane of the cube"
@@ -144,6 +157,10 @@ z=axis number to average around"""
     if z==0: return np.array([x for x in  pp.pmap(f, [grid[i,...] for i in xrange(grid.shape[0])], limit=6)]) 
     if z==1: return np.array([x for x in  pp.pmap(f, [grid[:,i,:] for i in xrange(grid.shape[1])], limit=6)]) 
     if z==2: return np.array([x for x in  pp.pmap(f, [grid[...,i] for i in xrange(grid.shape[2])], limit=6)]) 
+
+def stripStokes (im):
+    "casa annoying creates fits files in a shape [v,1,x,x] rather than [v,x,x] so this removes that"
+    return im.reshape(list((im.shape[0],))+list(im.shape[2:]))
 
 
 
