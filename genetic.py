@@ -120,7 +120,7 @@ def _hillWalk_(f,A,verbose=False, maxits=None):
     return np.concatenate(([f(new)], new))
 
 class optimize ():
-    """Class that uses a simple genetic optimiatoin routine to minimise n-dimensional functions avoiding local minima
+    """Class that uses a simple genetic optimisation routine to minimise n-dimensional functions avoiding local minima
 
     -f is a function which takes a list of n parameters and returns a single fitness value; this is the
 value being minimised

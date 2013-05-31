@@ -6,11 +6,32 @@ from scipy.interpolate import griddata
 import numpy as np
 import pprocess as pp
 from pylab import imshow
+import pylab as pyl
+from numpy import outer
+import pyfits as P
 
+def show_cm():
+    pyl.rc('text', usetex=False)
+    a=outer(np.arange(0,1,0.01),np.ones(10))
+    pyl.figure(figsize=(10,5))
+    pyl.subplots_adjust(top=0.8,bottom=0.05,left=0.01,right=0.99)
+    maps=[m for m in pyl.cm.datad if not m.endswith("_r")]
+    maps.sort()
+    l=len(maps)+1
+    for i, m in enumerate(maps):
+        pyl.subplot(1,l,i+1)
+        pyl.axis("off")
+        imshow(a,aspect='auto',cmap=pyl.get_cmap(m),origin="lower")
+        pyl.title(m,rotation=90,fontsize=10)
+        #pyl.savefig("colormaps.png",dpi=100,facecolor='gray')
+        pyl.show
 g=[]
 
-def getfits (path='./'):
-    return [x for x in os.walk(path).next()[2] if len(x)>=5 and x[-5:]=='.fits']
+def getfits (path='./', *iname):
+    return [x for x in os.walk(path).next()[2] if len(x)>=5 and (x[-5:]=='.fits' or x[-8:]=='.fits.gz') and all([y in x for y in ['']+list(iname)])]
+
+def average_cubes(lis):
+    return np.array([P.getdata(x) for x in lis]).mean(0)
 
 def garray(shape, sigma):
     a=numpy.empty(shape, dtype=float)
@@ -107,6 +128,10 @@ freq is the frequency of the light in Hz
 cellWidth is the size of one cell in arcsec"""
     lamb=cnst.speed_of_light/freq*1000
     return T / (13.6 * (lamb/(cellWidth*pi/4))**2)
+
+def blackBody (temp, freq=300e9):
+    return 2*cnst.Planck*freq**3/cnst.speed_of_light**2/(np.exp(cnst.Planck*freq/(cnst.Boltzmann*temp))-1)
+#    return 2*cnst.Planck*cnst.speed_of_light**2/(lamb**5*(np.exp(cnst.Planck*cnst.speed_of_light/(lamb*cnst.Boltzmann*temp))-1))
 
 def convolve (arr1, arr2):
     "convolves 2 arrays together with fft, arrays will be zero padded to equal size"
@@ -210,7 +235,9 @@ def datafile(path):
     lines=[]
     f=open(path)
     for line in f: 
-        if line.strip()[0] in '1234567890.-+': lines.append([numpy.float64(x) for x in line.split()])
+        try:
+            if line.strip()[0] in '1234567890.-+': lines.append([numpy.float64(x) for x in line.split()])
+        except IndexError: None
     f.close()
     return numpy.array(lines)
 

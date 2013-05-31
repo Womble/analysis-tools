@@ -11,7 +11,8 @@ def datafile(path):
     if isinstance(path, str): f=open(path)
     else: f=path
     for line in f: 
-        if line.strip()[0] in '1234567890.-+': lines.append([float(x) for x in line.split()])
+        l=line.strip()
+        if len(l) > 0 and l[0] in '1234567890.-+': lines.append([float(x) for x in l.split()])
     f.close()
     return array(lines)
 

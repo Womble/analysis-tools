@@ -62,22 +62,22 @@ fits the [1:] params of f to minimise the distance between function and pixel we
 
     return optimize.fmin_bfgs(func, init_args_guess, maxiter=100)
 
-
-import pylab
-fig_width_pt = 240.0  # Get this from LaTeX using \showthe\columnwidth
-inches_per_pt = 1.0/72.27               # Convert pt to inch
-fig_width = fig_width_pt*inches_per_pt  # width in inches
-fig_height = fig_width/1.15
-fig_size =  [fig_width,fig_height]
-params = {'backend': 'ps',
-          'axes.labelsize': 8,
-          'text.fontsize': 10,
-          'legend.fontsize': 10,
-          'xtick.labelsize': 7,
-          'ytick.labelsize': 7,
-#          'text.usetex': True,
-          'figure.figsize': fig_size}
-pylab.rcParams.update(params)
+def set_mnras_size ():
+    import pylab
+    fig_width_pt = 240.0  # Get this from LaTeX using \showthe\columnwidth
+    inches_per_pt = 1.0/72.27               # Convert pt to inch
+    fig_width = fig_width_pt*inches_per_pt  # width in inches
+    fig_height = fig_width/1.15
+    fig_size =  [fig_width,fig_height]
+    params = {'backend': 'ps',
+              'axes.labelsize': 8,
+              'text.fontsize': 10,
+              'legend.fontsize': 10,
+              'xtick.labelsize': 7,
+              'ytick.labelsize': 7,
+              #          'text.usetex': True,
+              'figure.figsize': fig_size}
+    pylab.rcParams.update(params)
 
 
 def decorate_image(F, pixels=201,imres=0.005):
@@ -417,7 +417,7 @@ def continuumSubtract(spec, method=lambda x: sorted(x)[int(len(x)/2)]):
 
 
 #displays
-def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=False, cmap=cm, **kwargs):
+def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=False,plane=None,axis=None, cmap=cm, **kwargs):
     global last_plot
 
     def contfind(spec):
@@ -427,8 +427,8 @@ def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=
 #        return optimize.fmin(f, spec[0], disp=0)[0]
 
     if (len (im.shape)==3):
-        plane=float(raw_input("plane number for pv slice: "))
-        axis=float(raw_input("axis number (y=1, x=2): "))
+        if not(plane): plane=float(raw_input("plane number for pv slice: "))
+        if not(axis):  axis=float(raw_input("axis number (y=1, x=2): "))
         global last_plot
         if   axis==1: p=im[:,plane,:].copy()
         elif axis==2: p=im[:,:,plane].copy()
