@@ -27,6 +27,33 @@ def show_cm():
         pyl.show
 g=[]
 
+def arr2h (data, name, opath='temp.h'):
+    S=np.array(data.shape)
+    SS=np.array([S[i:].prod() for i in xrange(-S.size+1,0)])
+    c=0
+    of=open(opath,'w')
+    print SS
+    of.write('const static double '+name+''.join(tuple([str([x]) for x in data.shape]))+' = {')
+    for x in data.flat:
+        c+=1
+        ns=c%SS
+        for n in ns:
+            if n==1: of.write('{')
+        of.write("%.3e"%x)
+        if (ns!=0).all()or c==0: of.write(', ')
+        elif c!=0: 
+            for (i,n) in enumerate(ns[::-1]):
+                if n==0: 
+                    of.write('}')
+                    if i==ns.size-1: 
+                        if c!=data.size: of.write(',\n')
+                        else: of.write('\n')
+                    else:
+                        if ns[::-1][i+1]==0: 
+                            of.write('\n')
+                        else: of.write(',\n')
+    of.write('};')
+
 def getfits (path='./', *iname):
     return [x for x in os.walk(path).next()[2] if len(x)>=5 and (x[-5:]=='.fits' or x[-8:]=='.fits.gz') and all([y in x for y in ['']+list(iname)])]
 
@@ -86,14 +113,17 @@ def beam_convolve(arr, sigma):
 
 def degrade_arr (arr, axis, factor):
     s=list(arr.shape)
-    s[axis]/=factor
+    s[axis]=s[axis]//factor
     new=np.zeros(s, dtype=arr.dtype)
+#    print new.shape, arr.shape
     for i in xrange(s[axis]):
-        sl1=[slice(0,-1) for _ in s]
+        sl1=[slice(_) for _ in s]
         sl1[axis]=i
-        sl2=[slice(0,-1) for _ in s]
+        sl2=[slice(_) for _ in s]
         sl2[axis]=slice(i*factor,(i+1)*factor)
         new[sl1]=arr[sl2].mean(axis)
+ #       print sl1 ,sl2
+ #       print i ,arr[sl2] 
     return new
 
 
@@ -184,7 +214,7 @@ z=axis number to average around"""
     if z==2: return np.array([x for x in  pp.pmap(f, [grid[...,i] for i in xrange(grid.shape[2])], limit=6)]) 
 
 def stripStokes (im):
-    "casa annoying creates fits files in a shape [v,1,x,x] rather than [v,x,x] so this removes that"
+    "casa annoyingly creates fits files in a shape [v,1,x,x] rather than [v,x,x] so this removes that"
     return im.reshape(list((im.shape[0],))+list(im.shape[2:]))
 
 

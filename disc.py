@@ -467,13 +467,14 @@ def pv (im, contSub=True, spatRes=0.625, velRes=0.075, cutFrac=0.01, fractional=
         return colorbar()
 
 
-def mom0map (im, velwidth=0.075, **kwargs):
+def mom0map (im, velwidth=0.075, logscale=False, **kwargs):
      global last_plot
      p=im.sum(0)*velwidth
      try :
          kwargs['cmap']
      except KeyError:
          kwargs['cmap']=cm
+     if logscale:   p=np.log10(p)
      clf();imshow(p, interpolation='nearest', origin='image', **kwargs);cbar=colorbar()
      last_plot=p
      cbar.set_label('K km/s')

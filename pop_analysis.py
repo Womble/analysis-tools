@@ -77,13 +77,14 @@ def __main__():
 #    plot(sqrt((dat[:,:2]**2).sum(1)), dat[:,2], ',')
 
     r,z = sqrt((dat[:,:2]**2).sum(1)), dat[:,2]
-    H, xedges, yedges = histogram2d(r, z, bins=(75, 75))
+    H, xedges, yedges = histogram2d(r, z, bins=(20, 100))
     clf();plt.imshow(log10(H.T+0.1), vmin=0, interpolation='nearest',origin='image', cmap=plt.cm.gist_heat)
-    gca().set_xticks([x for x in gca().get_xticks() if x>=0 and x<len(xedges)])
-    gca().set_yticks([y for y in gca().get_yticks() if y>=0 and y<len(yedges)])
-    gca().set_xticklabels(['%.2f'%xedges[i] for i in gca().get_xticks()])
-    gca().set_yticklabels(['%.2f'%yedges[i] for i in gca().get_yticks()])
-    plt.colorbar();plt.draw()
+#    gca().set_xticks([x for x in gca().get_xticks() if x>=0 and x<len(xedges)])
+#    gca().set_yticks([y for y in gca().get_yticks() if y>=0 and y<len(yedges)])
+#    gca().set_xticklabels(['%.2f'%xedges[i]/2.5e13 for i in gca().get_xticks()])
+#    gca().set_yticklabels(['%.2f'%yedges[i]/2.5e13 for i in gca().get_yticks()])
+    plt.colorbar()
+    plt.draw()
 
     raw_input("enter to continue")
 
