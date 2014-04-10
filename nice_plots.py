@@ -40,7 +40,7 @@ def nice_plots(fs=None):
     mpl.rcParams['font.serif']= 'Times'
     mpl.rcParams['text.usetex']= True
     # Figure properties
-    mpl.rcParams['figure.figsize']=12,12
+    mpl.rcParams['figure.figsize']=14,12
     mpl.rcParams['figure.subplot.left'] = .1
     mpl.rcParams['figure.subplot.right'] = .9
     mpl.rcParams['figure.subplot.bottom'] = .1

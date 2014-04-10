@@ -175,7 +175,7 @@ the fitness of the top member is less than satisfactry the optimization ends
         if self.sw and not(self.convTest()):self.pool[0]=_hillWalk_(self.f, self.pool[0])
         while i<self.its and not(self.convTest()):
             self.bestTracker.append(self.pool[0][0])
-            if self.verbose and i%(self.its/50)==0: print [x[0] for x in self.pool[::self.poolSize/10]], str((i*100)/self.its)+'% '+str(self.tolTest())
+            if self.verbose and i%(self.its/50)==0: print [x[0] for x in self.pool[::self.poolSize/10]], str((i*100)/self.its)+'% '+str(self.tolTest()), self.muterate
             if self.walks and (i+1)%(self.its/self.walks)==0: 
                 if self.verbose: print 'hill-walking'
                 for j in xrange(self.poolSize/3): #only hill walk every 2nd element to (hopefully prevent convergence on one local maximum)

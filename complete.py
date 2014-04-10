@@ -6,9 +6,53 @@ from scipy.interpolate import griddata
 import numpy as np
 import pprocess as pp
 from pylab import imshow
+from matplotlib.ticker import NullFormatter
 import pylab as pyl
 from numpy import outer
 import pyfits as P
+from scipy import ndimage
+
+def imshowWslices(data, cbar=False, yslice=0.5, xslice=0.5, **args):
+    shape=data.shape
+    if not(len(shape)==2): raise valueError
+    xslice=int(xslice*shape[0])
+    yslice=int(yslice*shape[1])
+    # Define the locations for the axes
+    left, width = 0.12, 0.55
+    bottom, height = 0.12, 0.55
+    bottom_h = left_h = left+width+0.02
+
+    # Set up the geometry of the three plots
+    rect_temperature = [left, bottom, width, height] # dimensions of temp plot
+    rect_histx = [left, bottom_h, width, 0.25] # dimensions of x-histogram
+    rect_histy = [left_h, bottom, 0.25, height] # dimensions of y-histogram
+
+    # Set up the size of the figure
+    fig = pyl.figure(1, figsize=(9.5,9))
+
+    # Make the three plots
+    axTemperature = pyl.axes(rect_temperature) # temperature plot
+    cax = axTemperature.imshow(data, interpolation='nearest', origin='image', **args)
+
+    axHistx = pyl.axes(rect_histx) # x histogram
+    axHisty = pyl.axes(rect_histy) # y histogram
+    if cbar : pyl.colorbar(cax, ax=axTemperature, orientation='horizontal')
+    
+    nullfmt = NullFormatter()
+    axHistx.xaxis.set_major_formatter(nullfmt)
+    axHisty.yaxis.set_major_formatter(nullfmt)
+
+#    axHisty.set_ylim([0,shape[1]])
+#    axHistx.set_xlim([0,shape[0]])
+
+    axHistx.plot(np.arange(shape[1]), data[xslice,:])
+    axHisty.plot(data[:,yslice], np.arange(shape[0]))
+
+    axHisty.set_xticklabels(['%.1e'%x for x in axHisty.get_xticks()])
+    axHistx.set_yticklabels(['%.1e'%x for x in axHisty.get_yticks()])
+
+
+    pyl.draw()
 
 def show_cm():
     pyl.rc('text', usetex=False)
@@ -99,7 +143,7 @@ def next_pow2 (n):
     X=abs(n)
     ans=1
     while ans<X: ans*=2
-    return ans
+    return ans*sign
 
 def beam_convolve(arr, sigma):
     "convoles a 2D image with a gaussian profile with sigma in px"
@@ -111,25 +155,40 @@ def beam_convolve(arr, sigma):
         ftg=rfft2(gauss_mask, s)
         return irfft2(rfft2(arr,s)*ftg)
 
+def strech_arr(arr, axis, factor):
+    axes=[x for x in arr.shape[:axis]]+[int(arr.shape[axis]*factor)]+[x for x in arr.shape[axis+1:]]
+    new=np.empty(axes)
+    l=len(axes)
+    for i in xrange(arr.shape[axis]):
+        sl1=[slice(0,x) for x in arr.shape[:axis]]+[slice(i,i+1)]
+        sl2=[slice(0,x) for x in arr.shape[:axis]]+[slice(i*factor,(i+1)*factor)]
+        try:
+            sl1+=[slice(0,axes[x]) for x in arr.shape[axis+1:]]
+        except:
+            None
+        try:
+            sl2+=[slice(0,axes[x]) for x in arr.shape[axis+1:]]
+        except:
+            None
+        new[sl2]=arr[sl1]
+    return new    
+
 def degrade_arr (arr, axis, factor):
     s=list(arr.shape)
-    s[axis]=s[axis]//factor
+    s[axis]=int(s[axis]//factor)
     new=np.zeros(s, dtype=arr.dtype)
-#    print new.shape, arr.shape
     for i in xrange(s[axis]):
         sl1=[slice(_) for _ in s]
         sl1[axis]=i
         sl2=[slice(_) for _ in s]
-        sl2[axis]=slice(i*factor,(i+1)*factor)
+        sl2[axis]=slice(int(i*factor),int((i+1)*factor))
         new[sl1]=arr[sl2].mean(axis)
- #       print sl1 ,sl2
- #       print i ,arr[sl2] 
     return new
 
 
-def cube_convolve(imcube, sigma):
+def cube_convolve(imcube, sigma, inplace=0):
     "performs a convolution with a gaussian beam of width sigma on each yz plane of the cube"
-#    imcube=imcube.copy()
+    if not(inplace) : imcube=imcube.copy()
     shape=imcube.shape[1:]
     if len(shape)!=2:
         raise ValueError ("cube is not a cube")
@@ -169,26 +228,38 @@ def convolve (arr1, arr2):
     s=(int(max(arr1.shape[0],arr2.shape[0])*1.5),int(max(arr1.shape[1],arr2.shape[1])*1.5))
     return irfft2(rfft2(arr1,s)*rfft2(arr2,s))
 
+#def cartesian2polar (grid, centre='origin', replaceNans=False):
+#    "converts and interpolates a 2D cartesian grid to a polar one"
+#    X,Y=np.mgrid[0:grid.shape[0],0:grid.shape[1]]
+#    if centre=='centre':
+#        X-=X.max()/2.0
+#        Y-=Y.max()/2.0
+#    R=np.sqrt(X**2+Y**2)
+#    PHI=np.arctan2(Y,X)
+#    r,phi=np.mgrid[0.1:R.max():1.0*X.max()/grid.shape[0], 0:pi/2:pi/2/grid.shape[1]]
+#    out=griddata(zip(R.ravel(), PHI.ravel()), grid.ravel(), (r,phi), method='linear')
+#    if replaceNans == 'zeros':
+#        out[np.isnan(out)]=0
+#    if replaceNans == 'ones':
+#        out[np.isnan(out)]=1
+#    elif replaceNans=='nearest':
+#        out2=griddata(zip(R.ravel(), PHI.ravel()), grid.ravel(), (r,phi), method='nearest')
+#        out[np.isnan(out)]=out2[np.isnan(out)]
+#    return out
+
 def cartesian2polar (grid):
-    "converts and interpolates a 2D cartesian grid to a polar one"
-    X,Y=np.mgrid[0.0:grid.shape[0],0:grid.shape[1]]
-    X-=X.max()/2.0
-    Y-=Y.max()/2.0
-    R=np.sqrt(X**2+Y**2)
-    PHI=np.arctan2(Y,X)
-    r,phi=np.mgrid[0.1:X.max():1.0*X.max()/grid.shape[0], -pi+2*pi/grid.shape[1]:pi:2*pi/grid.shape[1]]
-    out=griddata(zip(R.ravel(), PHI.ravel()), grid.ravel(), (r,phi), method='linear')
-    out2=griddata(zip(R.ravel(), PHI.ravel()), grid.ravel(), (r,phi), method='nearest')
-    out[np.isnan(out)]=out2[np.isnan(out)]
+    rmax=sqrt(grid.shape[0]**2+grid.shape[1]**2)
+    r,theta=np.mgrid[0:rmax:rmax*1j, 0:pi/2:rmax*1j]
+    out=np.zeros_like(r)
+    ndimage.map_coordinates(grid, [r*np.cos(theta),r*np.sin(theta)], output=out, mode='nearest', order=1)
     return out
 
 def polar2cartesian (grid):
     "converts and interpolates a 2D polar (r,phi) grid to a cartesian  one"
-    R,PHI=np.mgrid[0:grid.shape[0], -pi:pi:2*pi/grid.shape[1]]
-    Y=R*np.sin(PHI)
-    X=R*np.cos(PHI)
-    x,y=np.mgrid[-R.max():R.max():1.0*R.max()/grid.shape[0]*2,-R.max():R.max():1.0*R.max()/grid.shape[1]*2]
-    return griddata(zip(X.ravel(), Y.ravel()), grid.ravel(), (x,y), method='linear')
+    X,Y=np.mgrid[0.0:grid.shape[0], 0:grid.shape[0]]
+    out=np.zeros_like(X)
+    ndimage.map_coordinates(grid, [np.sqrt(X*X+Y*Y),np.arctan2(Y,X)/(pi/2)*grid.shape[1]], output=out, mode='nearest', order=1)
+    return out
 
 def cartesian2cylindical (grid, z=0):
     """converts and interpolates a 3D cartesian grid to a cylindrical one
