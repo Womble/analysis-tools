@@ -2,12 +2,16 @@ import numpy as np
 import matplotlib.pylab  as pl
 import os
 from scipy.interpolate import griddata
-import complete as C
+import utils as ut
 import gzip
 
 def xq2arr (file):
+    try:
+        f=gzip.open(file)
+    except:
+        f=open(file)
     out=np.loadtxt(file, skiprows=3)
-    file.close()
+    f.close()
     return out
 
 def xq2griddata (file, factor=1):
@@ -75,5 +79,5 @@ def makeStarwindHeader (name):
     X=np.empty((s[0],3))
     X[:,0:2]=rho
     X[:,2]=V[:,1]
-    C.arr2h(X, 'star_arr', name+'.h')
+    ut.arr2h(X, 'star_arr', name+'.h')
     return 'done'

@@ -5,11 +5,11 @@ import xqreader as xq
 import numpy as np
 from scipy import constants as cns
 import pylab as pyl
-import cPickle
+import dill
 import pprocess as pp
 from mpl_toolkits.axes_grid1 import ImageGrid
 from matplotlib import rcParams
-rcParams['text.usetex'] = True
+#rcParams['text.usetex'] = True
 
 from numpy import pi
 
@@ -28,7 +28,7 @@ class dsave():
 
 class disc ():
 
-    def __init__ (self, inp, unitLength=5.5*r_sol, mu=1.3*cns.m_p, numberOfCellsInUnit=64, timestamp=False, factor=1, convert=0):
+    def __init__ (self, inp, unitLength=5.5*r_sol, mu=1.3*cns.m_p, numberOfCellsInUnit=64, timestamp=False, factor=1, convert=0, lum=8500*L_sol):
         if type(inp)==str : 
             rho,u1,u2,pg,L=xq.makeplot(inp, drawPlot=False, factor=factor)
             convert=1
@@ -37,7 +37,7 @@ class disc ():
             convert=0
         else : 
             try:
-                ds=cPickle.load(inp)
+                ds=dill.load(inp)
                 rho,u1,u2,pg,L=ds.rho,ds.u1,ds.u2,ds.p,ds.L
                 convert=0
             except:
@@ -62,15 +62,15 @@ class disc ():
 
         self.R,self.Z=R*unitLength/numberOfCellsInUnit,Z*unitLength/numberOfCellsInUnit
         self.r=lambda :np.sqrt(self.R*2+self.Z**2)
-        self.theta= lambda :np.arctan2(R,Z)
+        self.theta= lambda :np.arctan2(Z,R)
         self.unitLength=unitLength
 
         if convert:
-            u1 *=self.unitLength
-            u2 *=self.unitLength
-            rho/=self.unitLength**3
-            pg /=self.unitLength
-            L  *=self.unitLength**2 #scaling to SI
+            u1 = u1*self.unitLength
+            u2 = u2*self.unitLength
+            rho= rho/self.unitLength**3
+            pg = pg/self.unitLength
+            L  = L*self.unitLength**2 #scaling to SI
 
 #        p1,p2=u1*rho,u2*rho
         self.rho   =lambda :rho
@@ -78,23 +78,24 @@ class disc ():
         self.U2    =lambda :u2
         self.pg    =lambda :pg
         self.L     =lambda :L 
-        self.p1    =lambda :u1*self.rho()
-        self.p2    =lambda :u2*self.rho()
+        self.p1    =lambda :self.U1()*self.rho()
+        self.p2    =lambda :self.U2()*self.rho()
         self.N     =lambda :self.rho()/mu
-        self.ke    =lambda :np.sqrt(self.p1()*self.p1()+self.p2()*self.p2())/self.rho()
+        self.ke    =lambda :(self.p1()*self.p1()+self.p2()*self.p2())/self.rho()/2
         
-        self.Uphi  =lambda :self.L()/(R*self.unitLength) #given by sqrt(R * MG)*R R has units of legnth and G has unit s of length^3
+        self.Uphi  =lambda :(self.L()/((R+1/32.)*self.unitLength)) #given by sqrt(R * MG)*R R has units of legnth and G has unit s of length^3
         self.T     =lambda :self.pg()/self.rho()/cns.Boltzmann*mu
+        self.Ut    =lambda :np.sqrt(self.U1()**2+self.U2()**2+self.Uphi()**2)
+        self.Uplane=lambda :np.sqrt(self.U1()**2+self.U2()**2)
 
+        self.lum=lum
 
     def pr (self):
-        dtheta=self.theta-np.arctan2(self.U1(),self.U2())
-        return np.sqrt(self.p1()**2+self.p2()**2)*np.cos(dtheta)
+        return self.p1()*np.cos(self.theta())+self.p2()*np.sin(self.theta())
 
     def ptheta (self):
-        dtheta=self.theta-np.arctan2(self.U1(),self.U2())
-        return np.sqrt(self.p1()**2+self.p2()**2)*np.sin(dtheta)
-      
+        return self.p1()*np.sin(self.theta())+self.p2()*np.cos(self.theta())
+
     def makeplot(self, f=None):
         if not(f): f=pyl.figure()
         ax=f.add_subplot(111)
@@ -122,7 +123,7 @@ class disc ():
         if self.timestamp: ax.annotate('%.3e'%self.timestamp, (0,self.S[1]*0.9), bbox=dict(fc='0.9'))
         f.show()
         return f
-
+    
     def degrade(self, factor):
         rho=ut.degrade_arr(ut.degrade_arr(self.rho(),0,factor),1,factor)
         u1 =ut.degrade_arr(ut.degrade_arr(self.p1(),0,factor),1,factor)/rho
@@ -132,17 +133,32 @@ class disc ():
         
         return disc((rho*self.unitLength**3,u1/self.unitLength,u2/self.unitLength,pg*self.unitLength,L/self.unitLength**2))
 
-    def makeCRPs(self, **args):
+    def makeCRPs(self, rho=1, pg=1,ke=1,rhov=1,v=0, mach=0,**args):
         try:
             axes=args['axes']
         except KeyError:
             axes=pyl.gca()
-        constRadiusPlot(self.rho(), **args )
-        constRadiusPlot(self.pg(), **args )
-        constRadiusPlot((self.U1()**2+self.U2()**2)*self.rho()/2, **args )
-        constRadiusPlot((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta()))*self.rho(), **args )
-        axes.legend((r'$\rho$',r'$P_g$',r'$KE$',r'$\rho v.\hat{r}$'), loc=6)
-        axes.set_xlabel(r'$\frac{\theta}{2 \pi}$')
+        l=[]
+        if rho: 
+            constRadiusPlot(self.rho(), **args )
+            l.append(r'$\rho$')
+        if pg : 
+            constRadiusPlot(self.pg(), **args )
+            l.append(r'$p_g$')
+        if ke : 
+            constRadiusPlot((self.U1()**2+self.U2()**2)*self.rho()/2, **args )
+            l.append(r'$E_k$')
+        if mach:
+            constRadiusPlot((self.U1()**2+self.U2()**2)*self.rho()/2/self.pg(), **args )
+            l.append(r'$M$')
+        if rhov:
+            constRadiusPlot((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta()))*self.rho(), **args )
+            l.append(r'$\rho \dot v$')
+        if v:   
+            constRadiusPlot((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta())), **args )
+            l.append(r'$v$')
+        axes.legend(l, loc=6)
+        axes.set_xlabel(r'$\theta / \frac{\pi}{2}$')
         pyl.show()
 
     def makeCTPs(self, **args):
@@ -158,17 +174,56 @@ class disc ():
         axes.set_xlabel(r'$sin(\theta)$')
         pyl.show()    
 
-    def massflux(self):
-        mom_r_rq=ut.cartesian2polar((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta()))*self.rho())
-        mom_r_rq[mom_r_rq<0]=0 #dont subtract material moving inward from the mas calculation
-        arr=mom_r_rq[int(self.rho().shape[0]*0.9),:]*(0.9*self.unitLength)**2*np.sin(np.linspace(0,pi/2,mom_r_rq.shape[1]))
-        return arr.sum()*3600*24*365.25/m_sol * 2
+    def massflux(self,sum=1, debug=0,stripSubSonic=1.0/3, frac=0.9):
+        rho=self.rho().copy()
+        if stripSubSonic : rho[self.ke()<(stripSubSonic*self.pg())]=1e-50
+        mom_r_rq=ut.cartesian2polar((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta()))*rho)
+        mom_r_rq[mom_r_rq<0]=0 #dont subtract material moving inward from the mass calculation
+        arr=mom_r_rq[int(self.rho().shape[0]*frac),:]*np.sin(np.linspace(pi/2,0,mom_r_rq.shape[1]))
+        if debug: return(rho,arr.sum()*3600*24*365.25/m_sol * 4*pi*(9*self.unitLength)**2 *(pi/2)/arr.size)
+        elif sum :return arr.sum()*3600*24*365.25/m_sol * 4*pi*(9*self.unitLength)**2 *(pi/2)/arr.size
+        else   :return arr*3600*24*365.25/m_sol       * 4*pi*(9*self.unitLength)**2 *(pi/2)/arr.size
 
+    def discPolarRatio(self, rhoThresh=2,debug=0):
+        phi=self.massflux(0)
+        rhos=ut.cartesian2polar(self.rho())[self.rho().shape[0]*0.9,:]
+        thresh=rhoThresh*sorted(rhos[0:int(rhos.size/2)])[int(rhos.size/4)]
+        mask=rhos>thresh
+        if debug : return [phi[mask],phi[np.logical_not(mask)]]
+        return phi[mask].sum()/phi[np.logical_not(mask)].sum()
+
+    def windPerfomance(self, sum=1, frac=0.9):
+        "from sim2004 for spherical winds it is given by Phi.v_inf.c/L* where Phi is the mass loss rate, instead in do mass loss integral * v.c/L*"
+        mom_r_rq=self.massflux(sum=0)*ut.cartesian2polar((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta())))[int(self.rho().shape[0]*frac),:] /(3600*24*365.25/m_sol * 4*pi*(9*self.unitLength)**2 *(pi/2)/arr.size)
+        mom_r_rq[mom_r_rq<0]=0 #dont subtract material moving inward from the mass calculation
+        arr=mom_r_rq[int(self.rho().shape[0]*frac),:]*(9*self.unitLength)**2*np.sin(np.linspace(0,pi/2,mom_r_rq.shape[1]))
+        if sum :return arr.sum() * 2  *3e8/self.lum
+        else   :return arr * 2  *3e8/self.lum
+
+    def emmissionWeightedVelocity(self, machLim=2):
+        "returns velocity of supersonic weighted by density squared"
+        mask=self.ke()>(self.pg()/machLim)
+        weights=self.rho()**2*self.R**2*mask
+        return (self.Ut()*weights/weights.sum()).sum()
+    
+    def createHeader(self, name, factor=2):
+        ut.arr2h(ut.degrade_arr(ut.degrade_arr(np.array([self.rho()*self.unitLength**3, self.U1()/self.unitLength,self.U2()/self.unitLength, self.pg()*self.unitLength, self.L()/self.unitLength**2]),1,factor),2,factor), 'innerDisc_arr', name)
+        return 0
+
+    def createPolarHeader(self, name):
+        rho=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.rho(),0,self.rho().shape[0]/905.0),1,self.rho().shape[1]/905.0))
+        u1=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.U1(),0,self.rho().shape[0]/905.0),1,self.U1().shape[1]/905.0))
+        u2=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.U2(),0,self.rho().shape[0]/905.0),1,self.U2().shape[1]/905.0))
+        pg=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.pg(),0,self.rho().shape[0]/905.0),1,self.pg().shape[1]/905.0))
+        L=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.L(),0,self.rho().shape[0]/905.0),1,self.L().shape[1]/905.0))
+        s=rho.shape
+        ut.arr2h(np.array([rho,u1,u2,pg,L])[:,int(s[0]*0.9),:], 'innerDisc_arr', name)
+        return np.array([rho,u1,u2,pg,L])[0,:,:]
 
     def save(self, file):
         if type(file)==str:
             file=open(file, 'w')
-        cPickle.dump(dsave(self.timestamp, self.rho(), self.U1(), self.U2(), self.pg(), self.L()),file,protocol=-1)
+        dill.dump(dsave(self.timestamp, self.rho(), self.U1(), self.U2(), self.pg(), self.L()),file,protocol=-1)
         return 0
 
 def constRadiusPlot(arr, axes=None, radius=0.9, stlims=(0,1), normalise=False, logplot=False):
@@ -179,11 +234,14 @@ def constRadiusPlot(arr, axes=None, radius=0.9, stlims=(0,1), normalise=False, l
         if logplot   : ret=axes.semilogy(np.linspace(0.5,0,rq_arr[r,:].size),rq_arr[r,:])
         else         : ret=axes.plot(np.linspace(0.5,0,rq_arr[r,:].size),rq_arr[r,:])
         axes.set_xlim(stlims)
+        pyl.show()
+    elif axes=='skip':
+        print 'not drawing'
     else:
         if logplot   : ret=pyl.semilogy(np.linspace(1,0,rq_arr[r,:].size),rq_arr[r,:])
         else         : ret=pyl.plot(np.linspace(1,0,rq_arr[r,:].size),rq_arr[r,:])
         pyl.gca().set_xlim(stlims)
-    pyl.show()
+        pyl.show()
     return ret
 
 def constThetaPlot(arr, axes=None, Theta=0.95, normalise=False, logplot=False):
@@ -191,9 +249,14 @@ def constThetaPlot(arr, axes=None, Theta=0.95, normalise=False, logplot=False):
     q=rq_arr.shape[1]*(2/np.pi*Theta)
     if normalise : rq_arr/=abs(rq_arr[:,q].max())
     if not(axes) : axes=pyl.gca()
-    if logplot : axes.semilogy(rq_arr[:,q])
-    else       : axes.plot(rq_arr[:,q])
-    pyl.show()
+    if axes=='skip':
+        print 'not drawing'
+    elif logplot : 
+        axes.semilogy(rq_arr[:,q])
+        pyl.show()
+    else            : 
+        axes.plot(rq_arr[:,q])
+        pyl.show()
     return rq_arr
 
 def convTests (discs):
@@ -237,19 +300,19 @@ class timeSeries():
     def __init__(self, inp, factor=1):
         "inp wants to be a dictonary of form {timestamp:'xqRootName'} where timestamps are floats and xqRootNames are are strings containing the names of the xq files minus 'Rho.xq' at the end, or a filename of a saved timeseries"
         if type(inp)==type('string'):
-            dlist=cPickle.load(open(inp))
+            dlist=dill.load(open(inp))
             self.timeSeries=[disc(x) for x in dlist]
             for i in xrange(len(self.timeSeries)):
                 self.timeSeries[i].timestamp=dlist[i].stamp
             self.timeSeries.sort(key=lambda x: x.timestamp)
         else:
             try:
-                dlist=cPickle.load(inp)
+                dlist=dill.load(inp)
                 self.timeSeries=[disc(x) for x in dlist]
                 for i in xrange(len(self.timeSeries)):
                     self.timeSeries[i].timestamp=dlist[i].stamp
                 self.timeSeries.sort(key=lambda x: x.timestamp)
-            except ValueError:
+            except :
                 l=[]
                 #        tmp=[(key,inp[key]) for key in inp]
                 #        def foo((k,v)):
@@ -284,5 +347,5 @@ class timeSeries():
     def save(self, file):
         if type(file)==str:
             file=open(file, 'w')
-        cPickle.dump([dsave(x.timestamp, x.rho(),x.U1(),x.U2(),x.pg(),x.L()) for x in self.timeSeries],file,protocol=-1)
+        dill.dump([dsave(x.timestamp, x.rho(),x.U1(),x.U2(),x.pg(),x.L()) for x in self.timeSeries],file,protocol=-1)
         return 0

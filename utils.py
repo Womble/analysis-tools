@@ -3,6 +3,7 @@ import pylab as pyl
 from math import pi
 import os
 from scipy import ndimage
+from scipy.interpolate import griddata
 
 def imshowWslices(data, cbar=False, yslice=0.5, xslice=0.5, **args):
     shape=data.shape
@@ -88,7 +89,7 @@ def garray(shape, sigma):
     X,Y=np.mgrid[-midi:midi:shape[0]*1j, -midj:midj:shape[1]*1j]
     r=np.sqrt(X*X+Y*Y)
     return np.exp(-1*r**2 / (2*sigma*sigma))/(sigma*np.sqrt(2*pi))**2
-#exp(-1*(i-midi)**2 / (2*sigma*sigma))*exp(-1*(j-midj)**2 / (2*sigma*sigma))/(sqrt(2*pi*sigma**2))    
+#exp(-1*(i-midi)**2 / (2*sigma*sigma))*exp(-1*(j-midj)**2 / (2*sigma*sigma))/(np.sqrt(2*pi*sigma**2))    
 
 def strech_arr(arr, axis=0, factor=2, conserveSum=False):
     "increase the dimensions of array arr by factor along axis, if conserveSum is True then the array if divided by factor so that its sum remains the same"
@@ -128,15 +129,23 @@ def cartesian2polar (grid):
     rmax=np.sqrt(grid.shape[0]**2+grid.shape[1]**2)
     r,theta=np.mgrid[0:rmax:rmax*1j, 0:pi/2:rmax*1j]
     out=np.zeros_like(r)
-    print grid.shape, out.shape, r.shape
     ndimage.map_coordinates(grid, [r*np.cos(theta),r*np.sin(theta)], output=out, mode='nearest', order=1)
+    return out
+
+def lin2loglog (grid, low=-3, shape=[], order=3):
+    xmax,ymax=grid.shape
+    if not(shape): shape=grid.shape
+    oxmax,oymax=shape
+    out=np.zeros(shape)
+    x,y=np.mgrid[low:0:oxmax*1j, low:0:oymax*1j]
+    ndimage.map_coordinates(grid, [10**x*xmax,10**y*ymax], output=out, mode='nearest', order=order)
     return out
 
 def polar2cartesian (grid):
     "converts and interpolates a 2D polar (r,phi) grid to a cartesian  one"
     X,Y=np.mgrid[0.0:grid.shape[0], 0:grid.shape[0]]
     out=np.zeros_like(X)
-    ndimage.map_coordinates(grid, [sqrt(X*X+Y*Y),arctan2(Y,X)/(pi/2)*grid.shape[1]], output=out, mode='nearest', order=1)
+    ndimage.map_coordinates(grid, [np.sqrt(X*X+Y*Y),np.arctan2(Y,X)/(pi/2)*grid.shape[1]], output=out, mode='nearest', order=1)
     return out
 
 def cartesian2cylindical (grid, z=0):
@@ -148,7 +157,7 @@ z is the number of the z axis, defualts to 0 (first)"""
     if z==2: return np.array([x for x in  pp.pmap(cartesian2polar, [grid[...,i] for i in xrange(grid.shape[2])], limit=6)]) 
 
 
-_quadadd= lambda x: sqrt((x*x).sum())
+_quadadd= lambda x: np.sqrt((x*x).sum())
 def quad_add (array, axis=0):
     return np.apply_along_axis(_quadadd, axis, array)
 
