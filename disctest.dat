@@ -1,0 +1,17 @@
+rtol 0.99
+diffbad 8
+dfloor 1e15
+pfloor 1e6
+slow
+inten
+start "2D disc"
+levels 2
+rzp 2
+ r 12 0 4 symmetric-free
+ z 9 0 3  fix-free
+case DISCSTAR
+scalars 1
+end
+cnf 1e-3
+vrate 1 vscale 2
+diffbad 1

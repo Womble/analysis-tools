@@ -1,0 +1,8 @@
+read LD_16p2_8.000
+target 2e8
+cnf 1e-3 march 1000000 
+write LD_16p2_8.301
+target 4e8 march 1000000
+write largerun_16p2_8.602
+q
+
