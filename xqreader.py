@@ -51,7 +51,7 @@ def getdata (name, factor):
 
     return (rho,u1,u2,p,L)    
 
-def makeplot(name, vrate=30, drawPlot=True, factor=1):
+def makeplot(name, vrate=30, drawPlot=True, factor=1, getshape=0):
     rho,u1,u2,p,L=getdata(name, factor)
     if drawPlot:
         pl.clf() 
@@ -59,7 +59,19 @@ def makeplot(name, vrate=30, drawPlot=True, factor=1):
         pl.colorbar()
         s=rho.shape
         pl.barbs(np.arange(0,s[0],vrate),np.arange(0,s[1],vrate),u1[::vrate,::vrate].T,u2[::vrate,::vrate].T)
-    return (rho,u1,u2,p,L)
+    if getshape:
+        try:
+            f=gzip.open(name+'Rho.xq.gz')
+            _,nx,ny=[int(x) for x in f.readline().split()]
+        except:
+            f=open(name+'Rho.xq')
+            _,nx,ny=[int(x) for x in f.readline().split()] 
+        dat=np.loadtxt(f, skiprows=2)
+        xmin,xmax=dat[:,0].min(),dat[:,0].max()
+        ymin,ymax=dat[:,1].min(),dat[:,1].max()
+        return (rho,u1,u2,p,L ,((xmin,xmax),(ymin,ymax)))
+    else:
+        return (rho,u1,u2,p,L)
 
 def plotfromdata((rho,u1,u2,p), vrate=30, cmap=pl.cm.gist_heat_r, interpolation='nearest', axes=False, **args):
     if axes:

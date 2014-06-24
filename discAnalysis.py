@@ -30,7 +30,7 @@ class disc ():
 
     def __init__ (self, inp, unitLength=5.5*r_sol, mu=1.3*cns.m_p, numberOfCellsInUnit=64, timestamp=False, factor=1, convert=0, lum=8500*L_sol):
         if type(inp)==str : 
-            rho,u1,u2,pg,L=xq.makeplot(inp, drawPlot=False, factor=factor)
+            rho,u1,u2,pg,L,s=xq.makeplot(inp, drawPlot=False, factor=factor,getshape=1)
             convert=1
         elif type(inp)==type(dsave(0,0,0,0,0,0)):
             timestamp,rho,u1,u2,pg,L=inp.stamp,inp.rho,inp.u1,inp.u2,inp.p,inp.L
@@ -60,7 +60,10 @@ class disc ():
         r=np.sqrt(R*R+Z*Z)
         theta=np.arctan2(R,Z) #theta down from z axis
 
-        self.R,self.Z=R*unitLength/numberOfCellsInUnit,Z*unitLength/numberOfCellsInUnit
+        if type(inp)==str:
+            ((xmin,xmax),(ymin,ymax))=s
+            self.R,self.Z=xmin+R/R.max()*(xmax-xmin)*unitLength,ymin+Z/Z.max()*(ymax-ymin)*unitLength
+        #self.R,self.Z=R*unitLength/numberOfCellsInUnit,Z*unitLength/numberOfCellsInUnit
         self.r=lambda :np.sqrt(self.R*2+self.Z**2)
         self.theta= lambda :np.arctan2(Z,R)
         self.unitLength=unitLength
@@ -210,15 +213,22 @@ class disc ():
         ut.arr2h(ut.degrade_arr(ut.degrade_arr(np.array([self.rho()*self.unitLength**3, self.U1()/self.unitLength,self.U2()/self.unitLength, self.pg()*self.unitLength, self.L()/self.unitLength**2]),1,factor),2,factor), 'innerDisc_arr', name)
         return 0
 
-    def createPolarHeader(self, name):
-        rho=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.rho(),0,self.rho().shape[0]/905.0),1,self.rho().shape[1]/905.0))
-        u1=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.U1(),0,self.rho().shape[0]/905.0),1,self.U1().shape[1]/905.0))
-        u2=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.U2(),0,self.rho().shape[0]/905.0),1,self.U2().shape[1]/905.0))
-        pg=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.pg(),0,self.rho().shape[0]/905.0),1,self.pg().shape[1]/905.0))
-        L=ut.cartesian2polar(ut.degrade_arr(ut.degrade_arr(self.L(),0,self.rho().shape[0]/905.0),1,self.L().shape[1]/905.0))
+    def createPolarHeader(self, name, deconvert=1):
+        s=ut.cartesian2polar(self.rho()).shape
+        rho=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(self.rho()),0,s[0]/905.0),1,s[1]/905.0)
+        u1=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(self.U1()),0,s[0]/905.0),1,s[1]/905.0)
+        u2=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(self.U2()),0,s[0]/905.0),1,s[1]/905.0)
+        pg=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(self.pg()),0,s[0]/905.0),1,s[1]/905.0)
+        L=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(self.L()),0,s[0]/905.0),1,s[1]/905.0)
         s=rho.shape
-        ut.arr2h(np.array([rho,u1,u2,pg,L])[:,int(s[0]*0.9),:], 'innerDisc_arr', name)
-        return np.array([rho,u1,u2,pg,L])[0,:,:]
+        if deconvert:
+            u1 = u1/self.unitLength
+            u2 = u2/self.unitLength
+            rho= rho*self.unitLength**3
+            pg = pg*self.unitLength
+            L  = L/self.unitLength**2 #scaling to SI
+        ut.arr2h(np.array([rho,pg,u1,u2,L])[:,int(s[0]*0.9),:], 'largeDisc', name)
+        return np.array([rho,pg,u1,u2,L])[0,:,:]
 
     def save(self, file):
         if type(file)==str:
