@@ -4,6 +4,7 @@ from math import pi
 import os
 from scipy import ndimage
 from scipy.interpolate import griddata
+from numpy.fft import fft2,ifft2, irfft2, rfft2
 
 def imshowWslices(data, cbar=False, yslice=0.5, xslice=0.5, **args):
     shape=data.shape
@@ -79,17 +80,47 @@ def getfits (path='./', *iname):
 
 def almost_eq (a, b, diff=1e-6):
     "for comparing floats, evaluates to 10 if the factional difference between a and b is less than diff"
-    if type(a)==type(b)==ndarray:
-        return (abs((a-b)/a) <= diff) 
-    else:
-        return  abs((a-b)/a) <= diff 
+    return (abs((a-b)/a) <= diff) 
 
-def garray(shape, sigma):
+def FWHM2sigma (FWHM): return FWHM/(2*np.sqrt(2*np.log(2)))
+    
+def garray(shape, sigma, normalise=1):
     midi,midj=shape[0]/2,shape[1]/2
     X,Y=np.mgrid[-midi:midi:shape[0]*1j, -midj:midj:shape[1]*1j]
     r=np.sqrt(X*X+Y*Y)
-    return np.exp(-1*r**2 / (2*sigma*sigma))/(sigma*np.sqrt(2*pi))**2
-#exp(-1*(i-midi)**2 / (2*sigma*sigma))*exp(-1*(j-midj)**2 / (2*sigma*sigma))/(np.sqrt(2*pi*sigma**2))    
+    out= np.exp(-1*r**2 / (2*sigma*sigma))
+    if normalise :out=out/out.sum()
+    return out
+#exp(-1*(i-midi)**2 / (2*sigma*sigma))*exp(-1*(j-midj)**2 / (2*sigma*sigma))/(np.sqrt(2*pi*sigma**2))  
+
+def beam_convolve(arr, sigma, normalise=1):
+    "convoles a 2D image with a gaussian profile with sigma in px"
+    if len(arr.shape)!=2 or 3*sigma > max(arr.shape): raise ValueError ("arr is not 2d or beam is too wide")
+    else: 
+        shape=arr.shape
+        gauss_mask=garray(shape,sigma,normalise)
+        s=[y*2 for y in gauss_mask.shape]
+        ftg=rfft2(gauss_mask, s)
+        return irfft2(rfft2(arr,s)*ftg)  
+
+def cube_convolve(imcube, sigma, inplace=0):
+    "performs a convolution with a gaussian beam of width sigma on each yz plane of the cube"
+    if not(inplace) : imcube=imcube.copy()
+    shape=imcube.shape[1:]
+    if len(shape)!=2:
+        raise ValueError ("cube is not a cube")
+    gauss_mask=garray(shape,sigma)
+    s=[next_pow2(y*2+1) for y in gauss_mask.shape]
+    ftg=fft2(gauss_mask, s).reshape(s)
+    for i in xrange(imcube.shape[0]):
+        imcube[i,...]=np.real(ifft2(fft2(imcube[i,...],s)*ftg)[shape[0]/2:3*shape[0]/2, shape[1]/2:3*shape[1]/2])
+    return imcube
+
+def convolve (arr1, arr2):
+    "convolves 2 arrays together with fft, arrays will be zero padded to equal size"
+    if max(len(arr1.shape), len(arr2.shape)) > 2: raise ValueError("only dealing with 2d convolves here thankyou")
+    s=(int(max(arr1.shape[0],arr2.shape[0])*1.5),int(max(arr1.shape[1],arr2.shape[1])*1.5))
+    return irfft2(rfft2(arr1,s)*rfft2(arr2,s))
 
 def strech_arr(arr, axis=0, factor=2, conserveSum=False):
     "increase the dimensions of array arr by factor along axis, if conserveSum is True then the array if divided by factor so that its sum remains the same"
@@ -156,6 +187,14 @@ z is the number of the z axis, defualts to 0 (first)"""
     if z==1: return np.array([x for x in  pp.pmap(cartesian2polar, [grid[:,i,:] for i in xrange(grid.shape[1])], limit=6)]) 
     if z==2: return np.array([x for x in  pp.pmap(cartesian2polar, [grid[...,i] for i in xrange(grid.shape[2])], limit=6)]) 
 
+def polarSlice2Cube (Slice, zaxis=1, size=None, mode='nearest'):
+    s=max(Slice.shape)
+    if not(size):
+        size=s
+    g=x,y,z=np.mgrid[-s:s:size*1j,-s:s:size*1j,-s:s:size*1j]
+    R=np.sqrt(x*x+y*y)
+    if zaxis==1: return ndimage.map_coordinates(Slice, (R,abs(z)), mode=mode, order=1)
+    else       : return ndimage.map_coordinates(Slice, (abs(z),R), mode=mode, order=1)
 
 _quadadd= lambda x: np.sqrt((x*x).sum())
 def quad_add (array, axis=0):

@@ -36,9 +36,9 @@ def nice_plots(fs=None):
     else:
         mpl.rcParams['font.size'] = fs
     
-    mpl.rcParams['font.family']= 'serif'
-    mpl.rcParams['font.serif']= 'Times'
-    mpl.rcParams['text.usetex']= True
+#    mpl.rcParams['font.family']= 'serif'
+#    mpl.rcParams['font.serif']= 'Times'
+#    mpl.rcParams['text.usetex']= True
     # Figure properties
     mpl.rcParams['figure.figsize']=14,12
     mpl.rcParams['figure.subplot.left'] = .1
