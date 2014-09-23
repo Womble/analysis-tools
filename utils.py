@@ -214,6 +214,16 @@ class memoize():
             self.d[args]=ret
             return ret
 
+def funcDiff (f, n=0):
+    def fprime (*args):
+        eps=np.abs(np.finfo(float).eps)          #sqrt(machine epsilon)*x gives a good balance
+        h=max(10*eps, np.sqrt(eps)*abs(args[n])) #between small delta and rounding errors
+        l1=list(args[:n])+[args[n]-h]+list(args[n+1:])
+        f1=f(*l1)
+        l2=list(args[:n])+[args[n]+h]+list(args[n+1:])
+        f2=f(*l2)
+        return (f2-f1)/(2*h)
+    return fprime
 
 def compileClib(lib, Oflag='-O3'):
     if '/' in lib and not(lib[:2]=='./' and not('/' in lib[2:])):

@@ -8,7 +8,6 @@ from scipy import constants as cns
 from scipy.integrate import quad
 import pylab as pyl
 import dill
-import pprocess as pp
 from mpl_toolkits.axes_grid1 import ImageGrid
 from matplotlib import rcParams
 
@@ -121,10 +120,10 @@ class disc ():
     def ptheta (self):
         return self.p1()*np.sin(self.theta())+self.p2()*np.cos(self.theta())
 
-    def makeplot(self, f=None):
+    def makeplot(self, f=None, **args):
         if not(f): f=pyl.figure()
         ax=f.add_subplot(111)
-        xq.plotfromdata((self.rho(),self.U1(),self.U2(),self.pg()))
+        xq.plotfromdata((self.rho(),self.U1(),self.U2(),self.pg()), **args)
         if self.timestamp: f.axes[0].annotate('%.3e'%self.timestamp, (0,self.S[1]*.9), bbox=dict(fc='0.9'))
         f.show()
         return f
@@ -204,10 +203,10 @@ class disc ():
         if stripSubSonic : rho[self.ke()<(stripSubSonic*self.pg())]=1e-50
         mom_r_rq=ut.cartesian2polar((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta()))*rho)
         mom_r_rq[mom_r_rq<0]=0 #dont subtract material moving inward from the mass calculation
-        arr=mom_r_rq[int(self.rho().shape[0]*frac),:]*np.sin(np.linspace(pi/2,0,mom_r_rq.shape[1]))
+        arr=mom_r_rq[int(self.rho().shape[0]*frac),:]*np.sin(np.linspace(pi/2,0,mom_r_rq.shape[1])) #sin (phi) included here
         if debug: return(rho,arr.sum()*3600*24*365.25/m_sol * 4*pi*(frac*max(self.R.max(),self.Z.max()))**2 *(pi/2)/arr.size)
-        elif sum :return arr.sum()*3600*24*365.25/m_sol * 4*pi*(frac*max(self.R.max(),self.Z.max()))**2 *(pi/2)/arr.size
-        else   :return arr*3600*24*365.25/m_sol       * 4*pi*(frac*max(self.R.max(),self.Z.max()))**2 *(pi/2)/arr.size
+        elif sum :return arr.sum()*3600*24*365.25/m_sol * 4*pi*(frac*self.R.max())**2 *(pi/2)/arr.size
+        else     :return arr*3600*24*365.25/m_sol       * 4*pi*(frac*self.R.max())**2 *(pi/2)/arr.size # r.d_phi * 2 pi r sin(phi)   * 2
 
     def discPolarRatio(self, rhoThresh=2,debug=0):
         phi=self.massflux(0)
@@ -222,15 +221,16 @@ class disc ():
 
     def windPerfomance(self, sum=1, frac=0.9):
         "from sim2004 for spherical winds it is given by Phi.v_inf.c/L* where Phi is the mass loss rate, instead in do mass loss integral * v.c/L*"
-        mom_r_rq=self.massflux(sum=0)*ut.cartesian2polar((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta())))[int(self.rho().shape[0]*frac),:] /(3600*24*365.25/m_sol * 4*pi*(9*self.unitLength)**2 *(pi/2)/arr.size)
-        mom_r_rq[mom_r_rq<0]=0 #dont subtract material moving inward from the mass calculation
-        arr=mom_r_rq[int(self.rho().shape[0]*frac),:]*(9*self.unitLength)**2*np.sin(np.linspace(0,pi/2,mom_r_rq.shape[1]))
-        if sum :return arr.sum() * 2  *3e8/self.lum
-        else   :return arr * 2  *3e8/self.lum
+        vr_rq=ut.cartesian2polar((self.U1()*np.cos(self.theta())+self.U2()*np.sin(self.theta())))
+        vr_rq[vr_rq<0]=0
+        massflux=self.massflux(sum=0, frac=frac)*m_sol/(3600*24*365.25)
+        arr=massflux*vr_rq[vr_rq.shape[0]*frac,:]
+        if sum :return arr.sum()  *3e8/self.lum
+        else   :return arr   *3e8/self.lum
 
-    def emmissionWeightedVelocity(self, mask=None, machLim=2):
-        "returns velocity of supersonic weighted by density squared"
-        if mask==None: mask=self.ke()>(self.pg()/machLim)
+    def emmissionWeightedVelocity(self, mask=None, machLim=1):
+        "returns velocity of supersonic gas weighted by R.rho^2 (rho^2 for recombination, R for amount of visible material"
+        if mask==None: mask=self.ke()>(self.pg()*machLim)
         weights=(self.rho()*mask)**2*self.R
         return (self.Ut()*weights/weights.sum()).sum()
     
@@ -449,9 +449,10 @@ class timeSeries():
         rhobar=np.array([x.rho() for x in self.timeSeries]).mean(0)
         U1bar=np.array([x.p1() for x in self.timeSeries]).mean(0)/rhobar
         U2bar=np.array([x.p2() for x in self.timeSeries]).mean(0)/rhobar
-        pgbar=np.array([x.pg() for x in self.timeSeries]).mean(0)
+        kebar=np.array([x.p1()**2+x.p2()**2 for x in self.timeSeries]).mean(0)/rhobar/2
+        pgbar=np.array([x.pg() for x in self.timeSeries]).mean(0)-(0.5*(p1bar**2+p2bar**2)/rhobar-kebar) #add/subtract missing ke from momentum averaging into pressure
         Lbar=np.array([x.L() for x in self.timeSeries]).mean(0)
-        return disc([rhobar,U1bar,U2bar,pgbar,Lbar])
+        return disc([rhobar,U1bar,U2bar,pgbar,Lbar], convert=0, unitLength=self.timeSeries[0].unitLength, shape=self.timeSeries[0].rho().shape)
 
     def save(self, file):
         if type(file)==str:
