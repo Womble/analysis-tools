@@ -87,19 +87,19 @@ twisting them together at a random point and randomly mutating ~1/muterate of th
 def _breed_(A,B):
     """takes two [fitness, params] lists and creates a new one by converting the params into uint8-arrays,
 twisting them together at a random point and randomly mutating ~1/muterate of the uint16s"""
-    btype=randint(2)
-#    if btype==0:
+    breedType=randint(2)
+#    if breedType==0:
 #        if randint(2)==1:
 #            return A[1:].copy()
 #        else:
 #            return B[1:].copy()
-    if btype==1:
+    if breedType==1:
         c=A.copy()
         for i in xrange(len(A)): 
-            if randint(2)==0: c[i]=A[i]
+            if randint(2)==0: c[i]=B[i]
         return c[1:]
     else:
-        F=np.zeros((len(A)))
+        F=np.zeros(len(A))
         for i in xrange(len(A)):
             F[i]=random()
         c=F*A+(1-F)*B
@@ -135,7 +135,7 @@ the fitness of the top member is less than satisfactry the optimization ends
     -verbose causes output on the state of optimisation to be printed out at various intervals
 """
  #create
-    def __init__ (self, f, cons, pool=1000, its=100, tolerance=0.00001, satisfactory=1.0/5000, mutationRate=300, hillWalks=2, startWalk=False, finalWalk=True, verbose=False):
+    def __init__ (self, f, cons, pool=1000, its=100, tolerance=0.00001, satisfactory=1.0/5000, mutationRate=256, hillWalks=2, startWalk=False, finalWalk=True, verbose=False):
         self.verbose=verbose
         self.cons=cons
         if type(pool)==type([]): self.pool=pool
@@ -185,7 +185,7 @@ the fitness of the top member is less than satisfactry the optimization ends
             else:
                 if i>=10 and i%10==0:
                     if self.bestTracker[-1]<self.bestTracker[-10]*.99: self.muterate*=2. #if best has decreased by at least 1% slow down the mutation rate by a factor of 2
-                    else: self.muterate/=2.                                          #if it hasn't double the mutation rate
+                    else: self.muterate=max(1,self.muterate/2.)                                       #if it hasn't double the mutation rate
 
                 for j in xrange(3*self.poolSize/4):
                     r1=_detri_(randint(1,self.tri))-1

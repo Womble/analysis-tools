@@ -6,6 +6,7 @@ import xqreader as xq
 import numpy as np
 from scipy import constants as cns
 from scipy.integrate import quad
+from scipy.interpolate import UnivariateSpline,griddata
 import pylab as pyl
 import dill
 from mpl_toolkits.axes_grid1 import ImageGrid
@@ -34,8 +35,8 @@ class dsave():
 
 class disc ():
 
-    def __init__ (self, inp, unitLength=5.5*r_sol, mu=1.3*cns.m_p, numberOfCellsInUnit=64, timestamp=False, factor=1, convert=0, lum=8500*L_sol, shape=(900,600)):
-        if type(inp)==str : 
+    def __init__ (self, inp, unitLength=5.5*r_sol, mu=1.3*cns.m_p, timestamp=False, convert=0, lum=8500*L_sol, shape=(900,600)):
+        if type(inp)==str or (type(inp)==list and type(inp[0])==str): 
             rho,u1,u2,pg,L,s=xq.makeplot(inp, drawPlot=False, shape=shape) #expects to read in .xq files from mg named inp+ 'Rho' 'Pg' 'U1' 'U2' and  'L' for the density pressure velocities and spec ang mom of the region
             convert=1
         elif type(inp)==type(dsave(0,0,0,0,0,0)):
@@ -97,22 +98,33 @@ class disc ():
         self._pg    =pg
         self._L     =L 
 
-        self.rho   =lambda :self._rho
-        self.U1    =lambda :self._U1
-        self.U2    =lambda :self._U2
-        self.pg    =lambda :self._pg
-        self.L     =lambda :self._L 
+        self.rho   =lambda :self._rho.copy()
+        self.U1    =lambda :self._U1.copy()
+        self.U2    =lambda :self._U2.copy()
+        self.pg    =lambda :self._pg.copy()
+        self.L     =lambda :self._L.copy()
         self.p1    =lambda :self.U1()*self.rho()
         self.p2    =lambda :self.U2()*self.rho()
         self.N     =lambda :self.rho()/mu
-        self.ke    =lambda :(self.p1()*self.p1()+self.p2()*self.p2())/self.rho()/2
         
-        self.Uphi  =lambda :(self.L()/((R+1/32.)*self.unitLength)) #given by sqrt(R * MG)*R R has units of legnth and G has unit s of length^3
-        self.T     =lambda :self.pg()/self.rho()/cns.Boltzmann*mu
+        self.Uphi  =lambda :(self.L()/self.R) 
+        self.Ur    =lambda :self.U1()*np.cos(self.theta())+self.U2()*np.sin(self.theta())
         self.Ut    =lambda :np.sqrt(self.U1()**2+self.U2()**2+self.Uphi()**2)
         self.Uplane=lambda :np.sqrt(self.U1()**2+self.U2()**2)
 
+        self.T     =lambda :self.pg()/self.rho()/cns.Boltzmann*mu
         self.lum=lum
+        
+       
+        self.ionisation=ut.memoize(self.ionisation)
+
+    def ke (self, incRot=0):
+        ans=(self.p1()*self.p1()+self.p2()*self.p2())/self.rho()/2
+        if incRot: ans+=self.rho()*self.Uphi()**2/2
+        return ans
+
+    def mach (self, incRot=0):
+        return self.ke(incRot)/self.pg()
 
     def pr (self):
         return self.p1()*np.cos(self.theta())+self.p2()*np.sin(self.theta())
@@ -170,16 +182,16 @@ class disc ():
             constRadiusPlot(self.pg(), **args )
             l.append(r'$p_g$')
         if ke : 
-            constRadiusPlot((self.U1()**2+self.U2()**2)*self.rho()/2, **args )
+            constRadiusPlot(self.ke(), **args )
             l.append(r'$E_k$')
         if mach:
-            constRadiusPlot((self.U1()**2+self.U2()**2)*self.rho()/2/self.pg(), **args )
+            constRadiusPlot(self.ke()/self.pg(), **args )
             l.append(r'$M$')
         if rhov:
-            constRadiusPlot((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta()))*self.rho(), **args )
-            l.append(r'$\rho \dot v$')
+            constRadiusPlot(self.Ur()*self.rho(), **args )
+            l.append(r'$\rho\, v \cdot \hat r$')
         if v:   
-            constRadiusPlot((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta())), **args )
+            constRadiusPlot(self.Ur(), **args )
             l.append(r'$v$')
         axes.legend(l, loc=6)
         axes.set_xlabel(r'$\theta / \frac{\pi}{2}$')
@@ -198,8 +210,9 @@ class disc ():
         axes.set_xlabel(r'$sin(\theta)$')
         pyl.show()    
 
-    def massflux(self,sum=1, debug=0,stripSubSonic=1.0/3, frac=0.9):
+    def massflux(self,sum=1, debug=0,stripSubSonic=1.0/3, unboundOnly=10 ,frac=0.9):
         rho=self.rho().copy()
+        if unboundOnly: rho[self.boundGas(m_sol*unboundOnly)]=0
         if stripSubSonic : rho[self.ke()<(stripSubSonic*self.pg())]=1e-50
         mom_r_rq=ut.cartesian2polar((self.U1()*np.sin(self.theta())+self.U2()*np.cos(self.theta()))*rho)
         mom_r_rq[mom_r_rq<0]=0 #dont subtract material moving inward from the mass calculation
@@ -217,7 +230,7 @@ class disc ():
         return phi[mask].sum()/phi[np.logical_not(mask)].sum()
 
     def boundGas(self, centralMass):
-        return (self.ke()+self.pg())>(centralMass*cns.gravitational_constant*self.rho()/self.r())
+        return (self.ke()+self.pg())<(centralMass*cns.gravitational_constant*self.rho()/self.r())
 
     def windPerfomance(self, sum=1, frac=0.9):
         "from sim2004 for spherical winds it is given by Phi.v_inf.c/L* where Phi is the mass loss rate, instead in do mass loss integral * v.c/L*"
@@ -238,18 +251,18 @@ class disc ():
         ut.arr2h(ut.degrade_arr(ut.degrade_arr(np.array([self.rho()*self.unitLength**3, self.U1()/self.unitLength,self.U2()/self.unitLength, self.pg()*self.unitLength, self.L()/self.unitLength**2]),1,factor),2,factor), 'innerDisc_arr', name)
         return 0
 
-    def createPolarHeader(self, name, deconvert=1, convolve=0):
+    def createPolarHeader(self, name, deconvert=1, convolve=0, debug=0):
         s=ut.cartesian2polar(self.rho()).shape
         rho=self.rho()
         u1=self.U1()
         u2=self.U2()
         pg=self.pg()
         L=self.L()
-        rho=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(rho),0,s[0]/905.0),1,s[1]/905.0)
-        u1=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(u1),0,s[0]/905.0),1,s[1]/905.0)
-        u2=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(u2),0,s[0]/905.0),1,s[1]/905.0)
-        pg=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(pg),0,s[0]/905.0),1,s[1]/905.0)
-        L=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(L),0,s[0]/905.0),1,s[1]/905.0)
+        rho=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(rho),0,s[0]/900.0),1,s[1]/900.0)
+        u1=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(u1),0,s[0]/900.0),1,s[1]/900.0)
+        u2=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(u2),0,s[0]/900.0),1,s[1]/900.0)
+        pg=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(pg),0,s[0]/900.0),1,s[1]/900.0)
+        L=ut.degrade_arr(ut.degrade_arr(ut.cartesian2polar(L),0,s[0]/900.0),1,s[1]/900.0)
         s=rho.shape
         if convolve:
             rho=ut.beam_convolve(rho, convolve)
@@ -272,9 +285,10 @@ class disc ():
             pg = pg*self.unitLength
             L  = L/self.unitLength**2 #scaling to SI
             
-        for a in [rho,pg,u1,u2,L]:
-            pyl.semilogy(a[int(s[0]*0.9),:])
-            raw_input('>')
+        if debug:
+            for a in [rho,pg,u1,u2,L]:
+                pyl.semilogy(a[int(s[0]*0.9),:])
+                raw_input('>')
 
         ut.arr2h(np.array([rho,pg,u1,u2,L])[:,int(s[0]*0.9),:], 'largeDisc', name)
         return np.array([rho,pg,u1,u2,L])
@@ -285,37 +299,59 @@ class disc ():
         dill.dump(self,file,protocol=-1)
         return 0
 
-    def n2r2(self):
+    def n2r2(self, constRho=0):
         rho=self.rho().copy()
         rho[self.r()<(self.unitLength*1.25)]=rho.min()
         rho_pol=ut.cartesian2polar(rho*(1-2.0/3*np.exp(-13.6*cns.electron_volt/(k*self.T())))) #remove thermally ionised atoms from density
+        tmp=rho_pol[constRho,:].copy()
+        rho_pol[:constRho,:]=tmp
         n_pol=rho_pol/MMM
         r_pol=ut.cartesian2polar(self.r()/self.unitLength)
         return n_pol**2*r_pol**2
 
-    def ionisation(self, T_eff, lyn=1, bal=1, skip=1):
-        n2r2=self.n2r2()
-        nphot_lyn=nphot(T_eff,3.3e15) #photons with energy for n=1->inf
+    def ionisation(self, T=None, debug=0, lyn=1, bal=1, zeros=10, inner=None):
+        if T==None : T=T_eff(self.unitLength/r_sol)
+        if not(inner==None) :inner=UnivariateSpline(np.linspace(0,pi/2,len(inner)), np.log10(inner), s=1)
+        else                :inner=UnivariateSpline(np.arange(-10,10),np.arange(-10,10)*0)
+        n2r2=self.n2r2(zeros)
+        nphot_lyn=nphot(T,3.3e15) #photons with energy for n=1->inf
         print nphot_lyn
-        n2r2_sum=n2r2.copy()*2.076e-11*2.2/np.sqrt(ut.cartesian2polar(self.T()))
+        n2r2_sum=n2r2.copy()*2.076e-11*2.2/np.sqrt(ut.cartesian2polar(self.T()+100))
         ionise=np.zeros_like(n2r2)
+        if debug:
+            pyl.clf();pyl.imshow(np.log10(n2r2_sum));pyl.colorbar()
+            pyl.show();raw_input('>')
+        if bal:
+            i_B=ut.cartesian2polar(2.0/3*np.exp(-3.4*cns.electron_volt/(k*(self.T()+100)))) #boltzman distribution giving proportion of n=2 H atoms 
+            ionise+=i_B #assume anything in the n=2 state is then ionised by radiation from the star, disc is thin the Ballmer photons
+            ionise[ionise>1]=1
+            ionise[ionise<1e-20]=1e-20
+        n2r2_sum*=(1-ionise**2)
         if lyn:
             for i in xrange(1,n2r2.shape[0]):
-                if i>skip :n2r2_sum[i,:]+=n2r2_sum[i-1,:]
-                else      :n2r2_sum[i,:]=0
+                n2r2_sum[i,:]+=n2r2_sum[i-1,:]
 #            pyl.clf();pyl.imshow(np.log10(n2r2_sum),vmax=np.log10(nphot_lyn), vmin=0);pyl.colorbar();pyl.show();raw_input()
             ionise=(n2r2_sum<(nphot_lyn))*1.0 #total ionisation when sum(n^2 r^2 dr) < number of >=13.6ev photons otherwise default to 1e-50
             for j in xrange(n2r2.shape[1]-1):
                 for i in xrange(n2r2_sum.shape[0]-1):
                     if (n2r2_sum[i,j]>nphot_lyn):
-                        ionise[i,j]=max((nphot_lyn-n2r2[i-1,j])/n2r2[i,j] , 1e-20) #partial ionisation
+                        ionise[i,j]=max((nphot_lyn-n2r2_sum[i-1,j])/n2r2[i,j] , 1e-20) #partial ionisation
                         break
-        if bal:
-            i_B=ut.cartesian2polar(2.0/3*np.exp(-3.4*cns.electron_volt/(k*self.T()))) #boltzman distribution giving proportion of n=2 H atoms 
-            ionise+=i_B #assume anything in the n=2 state is then ionised by radiation from the star, disc is thin the Ballmer photons
         ionise[ionise>1]=1
         ionise[ionise<1e-20]=1e-20
+        #ionise[:zeros,:]=1e-20
         return ut.polar2cartesian(ionise)[:self.rho().shape[0],:self.rho().shape[1]]
+
+    def openingAngle(self,radius=2/3.0):
+        s=int(max(self.pr().shape)*radius)
+        x=getConstRadius(self.pr(), radius)
+        q=np.linspace(0,pi/2,x.size)
+        return (q * x*np.sin(q)).sum()/(x*np.sin(q)).sum()
+
+def getConstRadius(arr, radius=0.9):
+    polar=ut.cartesian2polar(arr)
+    s=int(max(arr.shape)*radius)
+    return polar[s,:]
 
 def emission(ne, T, nu):
     ne[ne<=0]=1e-50
@@ -405,8 +441,12 @@ def nphot (T,vmin):
               tot+=quad(lambda v: plank(T,v)/(h*v) ,x[i],x[i+1])[0] #split the integral into 100 sections with equal spaced logs
           return tot
 
+def T_eff (R):
+    return pow(L_sol*8500/cns.Stefan_Boltzmann/(4*pi*(R*r_sol)**2),0.25)
+
+
 class timeSeries():
-    def __init__(self, inp, factor=1):
+    def __init__(self, inp, shape=(900,600), unitLength=5.5*r_sol):
         "inp wants to be a dictonary of form {timestamp:'xqRootName'} where timestamps are floats and xqRootNames are are strings containing the names of the xq files minus 'Rho.xq' at the end, or a filename of a saved timeseries"
         if type(inp)==type('string'):
             dlist=dill.load(open(inp))
@@ -430,7 +470,7 @@ class timeSeries():
                 #            print k
                 #            return d
                 for key,val in inp.iteritems():
-                    d=disc(val, timestamp=key, factor=factor)
+                    d=disc(val, timestamp=key, shape=shape, unitLength=UnitLength)
                     d.timestamp=key
                     l.append(d)
                     print key
@@ -459,3 +499,37 @@ class timeSeries():
             file=open(file, 'w')
         dill.dump([dsave(x.timestamp, x.rho(),x.U1(),x.U2(),x.pg(),x.L()) for x in self.timeSeries],file,protocol=-1)
         return 0
+
+def mergeDiscs (d1, d2):
+    "overwrites the smaller of the 2 discs over the correspoding region of the larger one, ensure they use the same unit length"
+    if d1.r().max()>d2.r().max(): priority=1
+    else                        : priority=0
+    discs=(d1,d2)
+    dbig,dsmall=discs[not(priority)],discs[priority]
+    rho,u1,u2,pg,L=dbig.rho(),dbig.U1(),dbig.U2(),dbig.pg(),dbig.L()
+    Rhosmall=griddata((dsmall.R.flat,dsmall.Z.flat), dsmall.rho().flat, (dbig.R,dbig.Z))
+    U1small=griddata( (dsmall.R.flat,dsmall.Z.flat),dsmall.U1().flat, (dbig.R,dbig.Z))
+    U2small=griddata( (dsmall.R.flat,dsmall.Z.flat),dsmall.U2().flat, (dbig.R,dbig.Z))
+    Pgsmall=griddata( (dsmall.R.flat,dsmall.Z.flat),dsmall.pg().flat, (dbig.R,dbig.Z))
+    Lsmall=griddata( (dsmall.R.flat,dsmall.Z.flat),dsmall.L().flat, (dbig.R,dbig.Z))
+    mask=np.logical_not(np.isnan(Rhosmall))
+    rho[mask]=Rhosmall[mask]
+    u1[mask]=U1small[mask]
+    u2[mask]=U2small[mask]
+    pg[mask]=Pgsmall[mask]
+    L[mask]=Lsmall[mask]
+    return disc((rho,u1,u2,pg,L), unitLength=dbig.unitLength, shape=dbig.S, lum=dbig.lum, convert=0)
+
+
+def createStarwindHeader(name):
+    rho=xq.xq2arr(name+'Rho.xq2')
+    pg=xq.xq2arr(name+'Pg.xq2')
+    u=xq.xq2arr(name+'U1.xq2')
+    rhos=rho[np.argsort(rho[:,0]),:]
+    pgs=pg[np.argsort(pg[:,0]),:]
+    us=u[np.argsort(u[:,0]),:]
+    rhoSpline=UnivariateSpline(rhos[:,0],rhos[:,1],k=1,s=0) #k1 s0 spline is a first order spline that passes through eqach point, ie a lerp across all the points
+    pgSpline=UnivariateSpline(pgs[:,0],pgs[:,1],k=1,s=0)
+    uSpline=UnivariateSpline(us[:,0],us[:,1],k=1,s=0)
+    out=np.array([np.linspace(0,10,2048),rhoSpline(np.linspace(0,10,2048)),uSpline(np.linspace(0,10,2048)),pgSpline(np.linspace(0,10,2048))]).T
+    ut.arr2h(out,'star_arr',name+'.h')

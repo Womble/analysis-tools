@@ -7,15 +7,10 @@ import utils as ut
 import gzip
 
 def xq2arr (file):
-    try:
-        f=gzip.open(file)
-    except:
-        f=open(file)
     out=np.loadtxt(file, skiprows=3)
-    f.close()
     return out
 
-def xq2griddata (file, fill_value=1e-99, shape=None, getshape=0):
+def xq2griddata (file, fill_value=1e-99, shape=None, getshape=0, method='linear'):
     if not(shape):
         try:
             f=gzip.open(file)
@@ -23,7 +18,7 @@ def xq2griddata (file, fill_value=1e-99, shape=None, getshape=0):
         except:
             f=open(file)
             _,nx,ny=[int(x) for x in f.readline().split()]        
-        dat=np.loadtxt(file, skiprows=2)
+        dat=np.loadtxt(file, skiprows=3)
     else: 
         nx,ny=shape
         dat=np.loadtxt(file, skiprows=3)
@@ -31,37 +26,95 @@ def xq2griddata (file, fill_value=1e-99, shape=None, getshape=0):
     ymin,ymax=dat[:,1].min(),dat[:,1].max()
     xgrid,ygrid=np.mgrid[xmin:xmax:nx*1j,ymin:ymax:ny*1j]
     if getshape:
-        return griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method='nearest'),((xmin,xmax),(ymin,ymax))
+        gd=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method=method)
+        gd2=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method='nearest')
+        gd.flat[np.isnan(gd.flat)]=gd2.flat[np.isnan(gd.flat)]
+        return gd,((xmin,xmax),(ymin,ymax))
     else:
-        return griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method='nearest')
+        gd=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method=method)
+        gd2=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method='nearest')
+        gd.flat[np.isnan(gd.flat)]=gd2.flat[np.isnan(gd.flat)]
+        return gd
+
+def xqs2griddata (files, suffix, fill_value=1e-99, shape=None, getshape=0, method='linear'):
+    if not(shape):
+        try:
+            with gzip.open(files[0]+suffix) as f:
+                _,nx,ny=[int(x) for x in f.readline().split()]
+        except:
+            with open(files[0]+suffix) as f:
+                _,nx,ny=[int(x) for x in f.readline().split()]        
+            dat=np.concatenate([np.loadtxt(file+suffix, skiprows=3) for file in files])
+    else: 
+        nx,ny=shape
+        dat=np.concatenate([np.loadtxt(file+suffix, skiprows=3) for file in files])
+    xmin,xmax=dat[:,0].min(),dat[:,0].max()
+    ymin,ymax=dat[:,1].min(),dat[:,1].max()
+    xgrid,ygrid=np.mgrid[xmin:xmax:nx*1j,ymin:ymax:ny*1j]
+    if getshape:
+        gd=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method=method)
+        gd2=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method='nearest')
+        gd.flat[np.isnan(gd.flat)]=gd2.flat[np.isnan(gd.flat)]
+        return gd,((xmin,xmax),(ymin,ymax))
+    else:
+        gd=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method=method)
+        gd2=griddata(dat[:,0:2],dat[:,2], (xgrid,ygrid), method='nearest')
+        gd.flat[np.isnan(gd.flat)]=gd2.flat[np.isnan(gd.flat)]
+        return gd
 
 def getdata (name,  shape, fill_value=1e-99):
     try:
         rho=xq2griddata(name+'Rho.xq2',  fill_value, shape=shape)
-    except:
+    except IOError:
         rho=xq2griddata(name+'Rho.xq2.gz',  fill_value, shape=shape)
     try:
         u1=xq2griddata(name+'U1.xq2',  fill_value, shape=shape)
-    except:
+    except IOError:
         u1=xq2griddata(name+'U1.xq2.gz',  fill_value, shape=shape)
     try:
         u2=xq2griddata(name+'U2.xq2',  fill_value, shape=shape)
-    except:
+    except IOError:
         u2=xq2griddata(name+'U2.xq2.gz',  fill_value, shape=shape)
     try:
         p=xq2griddata(name+'Pg.xq2',  fill_value, shape=shape)
-    except:
+    except IOError:
         p=xq2griddata(name+'Pg.xq2.gz',  fill_value, shape=shape)
     try:
         L,s=xq2griddata(name+'L.xq2',  fill_value, shape=shape, getshape=1)
-    except:
+    except IOError:
         L,s=xq2griddata(name+'L.xq2.gz',  fill_value, shape=shape, getshape=1)
-    
+    return (rho,u1,u2,p,L,s)    
+
+def getdatalist (name,  shape, fill_value=1e-99):
+    try:
+        rho=xqs2griddata(name, 'Rho.xq2',  fill_value, shape=shape)
+    except IOError:
+        rho=xqs2griddata(name, 'Rho.xq2.gz',  fill_value, shape=shape)
+    try:
+        u1=xqs2griddata(name, 'U1.xq2',  fill_value, shape=shape)
+    except IOError:
+        u1=xqs2griddata(name, 'U1.xq2.gz',  fill_value, shape=shape)
+    try:
+        u2=xqs2griddata(name, 'U2.xq2',  fill_value, shape=shape)
+    except IOError:
+        u2=xqs2griddata(name, 'U2.xq2.gz',  fill_value, shape=shape)
+    try:
+        p=xqs2griddata(name, 'Pg.xq2',  fill_value, shape=shape)
+    except IOError:
+        p=xqs2griddata(name, 'Pg.xq2.gz',  fill_value, shape=shape)
+    try:
+        L,s=xqs2griddata(name, 'L.xq2',  fill_value, shape=shape, getshape=1)
+    except IOError:
+        L,s=xqs2griddata(name, 'L.xq2.gz',  fill_value, shape=shape, getshape=1)    
 
     return (rho,u1,u2,p,L,s)    
 
 def makeplot(name, vrate=30, drawPlot=True, factor=1, shape=None, numDensity=1):
-    rho,u1,u2,p,L,s=getdata(name,  shape=shape)
+    if type(name)==list:
+        rho,u1,u2,p,L,s=getdatalist(name,  shape=shape)
+    else:
+        rho,u1,u2,p,L,s=getdata(name,  shape=shape)
+    
     if drawPlot:
         pl.clf() 
         n=rho.T

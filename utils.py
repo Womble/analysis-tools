@@ -1,10 +1,48 @@
 import numpy as np
 import pylab as pyl
 from math import pi
+import math
 import os
 from scipy import ndimage
+from scipy import constants as cns
 from scipy.interpolate import griddata
 from numpy.fft import fft2,ifft2, irfft2, rfft2
+
+class interpArray(np.ndarray):
+    """interpolateably nd array: fractional indices give linear interpolations between points 
+For an N dimensional array uses (1+N) times as much memory
+Cannot use fractional indexing in slices, only for single points"""
+    def __new__(cls, inpArray):
+        obj = np.asarray(inpArray).view(cls)
+        obj.grads = np.gradient(inpArray)
+        return obj
+
+    def __getitem__(self, index):
+        try:
+            if float in map(type,index):
+                if slice in map(type,index): 
+                    raise TypeError()
+                Lind=tuple(map(int,index))
+                lower=self.view(np.ndarray).__getitem__(Lind)
+                deltas=map(lambda x: x%1, index)
+                for i,d in enumerate(deltas):
+                    lower+=deltas[i]*self.grads[i][Lind]
+                return lower
+            else:
+                raise TypeError()
+        except TypeError:
+            return self.view(np.ndarray).__getitem__(index)
+
+def laplacian (X):
+    gx=np.gradient(X)
+    shape=X.shape
+    if len(shape)==1:
+        return np.gradient(gx)
+    else:
+        out=np.zeros_like(X)
+        for i in xrange(len(shape)):
+            out+=np.gradient(gx[i])[i]
+        return out
 
 def imshowWslices(data, cbar=False, yslice=0.5, xslice=0.5, **args):
     shape=data.shape
@@ -50,7 +88,7 @@ def imshowWslices(data, cbar=False, yslice=0.5, xslice=0.5, **args):
 
 def arr2h (data, name, opath='temp.h'):
     S=np.array(data.shape)
-    SS=np.array([S[i:].prod() for i in xrange(-S.size+1,0)])
+    SS=np.array([S[i:].prod() for i in xrange(-S.size+1,0)]) #size of row, plane, cube, hypercube etc
     c=0
     of=open(opath,'w')
     print SS
@@ -58,11 +96,11 @@ def arr2h (data, name, opath='temp.h'):
     for x in data.flat:
         c+=1
         ns=c%SS
-        for n in ns:
+        for n in ns: #if we are are at the start of a block open a brace
             if n==1: of.write('{')
-        of.write("%.3e"%x)
-        if (ns!=0).all()or c==0: of.write(', ')
-        elif c!=0: 
+        of.write("%.3e"%x) #write the element
+        if (ns!=0).all()or c==0: of.write(', ') #if we're not at the end of a block write a comma
+        elif c!=0: #if we are at the end of a block close a brace and maybe write a new line
             for (i,n) in enumerate(ns[::-1]):
                 if n==0: 
                     of.write('}')
@@ -73,14 +111,37 @@ def arr2h (data, name, opath='temp.h'):
                         if ns[::-1][i+1]==0: 
                             of.write('\n')
                         else: of.write(',\n')
-    of.write('};')
+    of.write('};\n')#close the array  
 
 def getfits (path='./', *iname):
     return [x for x in os.walk(path).next()[2] if len(x)>=5 and (x[-5:]=='.fits' or x[-8:]=='.fits.gz') and all([y in x for y in ['']+list(iname)])]
 
 def almost_eq (a, b, diff=1e-6):
     "for comparing floats, evaluates to 10 if the factional difference between a and b is less than diff"
-    return (abs((a-b)/a) <= diff) 
+    return np.logical_or(a==b, (np.logical_or((abs((a-b)/a) <= diff) , (abs((a-b)/b) <= diff))))
+
+def next_pow2 (x):
+    return np.power(2, int(np.ceil(np.log2(x))))
+
+def JypPx2Temp (J,  freq, cellWidth):
+    """X is intensity in janskys per cell
+freq is the frequency of the light in Hz
+cellWidth is the size of one cell in arcsec"""
+    lamb=cns.speed_of_light/freq*1000 #lambda in mm
+    return 13.6 * (lamb/(cellWidth*pi/4))**2 * J
+
+    T = 13.6 * (lamb/(cellWidth*pi/4))**2 * J
+
+def Temp2JypPx (T, freq, cellWidth):
+    """T is brightness temperature in Kelvin
+freq is the frequency of the light in Hz
+cellWidth is the size of one cell in arcsec"""
+    lamb=cns.speed_of_light/freq*1000
+    return T / (13.6 * (lamb/(cellWidth*pi/4))**2)
+
+def stripStokes (im):
+    "casa annoyingly creates fits files in a shape [v,1,x,x] rather than [v,x,x] so this removes that"
+    return im.reshape(list((im.shape[0],))+list(im.shape[2:]))
 
 def FWHM2sigma (FWHM): return FWHM/(2*np.sqrt(2*np.log(2)))
     
@@ -103,13 +164,13 @@ def beam_convolve(arr, sigma, normalise=1):
         ftg=rfft2(gauss_mask, s)
         return irfft2(rfft2(arr,s)*ftg)  
 
-def cube_convolve(imcube, sigma, inplace=0):
+def cube_convolve(imcube, sigma, inplace=0, normalise=1):
     "performs a convolution with a gaussian beam of width sigma on each yz plane of the cube"
     if not(inplace) : imcube=imcube.copy()
     shape=imcube.shape[1:]
     if len(shape)!=2:
         raise ValueError ("cube is not a cube")
-    gauss_mask=garray(shape,sigma)
+    gauss_mask=garray(shape,sigma, normalise=normalise)
     s=[next_pow2(y*2+1) for y in gauss_mask.shape]
     ftg=fft2(gauss_mask, s).reshape(s)
     for i in xrange(imcube.shape[0]):
@@ -156,8 +217,26 @@ def degrade_arr (arr, axis=0, factor=2, conserveSum=False):
     if conserveSum : new*=factor
     return new
 
+def Rx(theta):
+    "returns the matrix for a rotation of theta radians about x"
+    ct=math.cos(theta)
+    st=math.sqrt(1-ct*ct)
+    return np.matrix([[1,0,0],[0,ct,-st],[0,st,ct]])
+
+def Ry(theta):
+    "returns the matrix for a rotation of theta radians about y"
+    ct=math.cos(theta)
+    st=math.sqrt(1-ct*ct)
+    return np.matrix([[ct,0,st],[0,1,0],[-st,0,ct]])
+
+def Rz(theta):
+    "returns the matrix for a rotation of theta radians about z"
+    ct=math.cos(theta)
+    st=math.sqrt(1-ct*ct)
+    return np.matrix([[ct,-st,0],[st,ct,0],[0,0,1]])
+
 def cartesian2polar (grid):
-    rmax=np.sqrt(grid.shape[0]**2+grid.shape[1]**2)
+    rmax=max(grid.shape)
     r,theta=np.mgrid[0:rmax:rmax*1j, 0:pi/2:rmax*1j]
     out=np.zeros_like(r)
     ndimage.map_coordinates(grid, [r*np.cos(theta),r*np.sin(theta)], output=out, mode='nearest', order=1)
@@ -200,21 +279,35 @@ _quadadd= lambda x: np.sqrt((x*x).sum())
 def quad_add (array, axis=0):
     return np.apply_along_axis(_quadadd, axis, array)
 
+def niceim (arr, cutFrac=0.001, log=False, centreZero=False, **kwargs):
+    if log : arr=np.log10(arr)
+    a=sorted(arr.flat)
+    prod=np.product(arr.shape)
+    kwargs['vmin']=a[int(prod*cutFrac)]
+    kwargs['vmax']=a[int(prod*(1-cutFrac))]
+    if centreZero:
+        lim=max(abs(kwargs['vmin']), abs(kwargs['vmax']))
+        kwargs['vmin']=-lim
+        kwargs['vmax']= lim
+    pyl.imshow(arr, **kwargs)
+
 class memoize():
     "a class for creating memoized instances of functions"
     def __init__(self, function, dict={}):
         self.f=function
 	if dict: self.d=d
         else   : self.d={}
-    def __call__(self, *args):
+    def __call__(self, *args, **kargs):
+        key = (args, frozenset(sorted(kargs.items())))
         try:
-            return self.d[args]
+            return self.d[key]
         except KeyError:
-            ret=self.f(*args)
-            self.d[args]=ret
+            ret=self.f(*args, **kargs)
+            self.d[key]=ret
             return ret
 
 def funcDiff (f, n=0):
+    "provides the partial differential of f with respect to the nth parameter"
     def fprime (*args):
         eps=np.abs(np.finfo(float).eps)          #sqrt(machine epsilon)*x gives a good balance
         h=max(10*eps, np.sqrt(eps)*abs(args[n])) #between small delta and rounding errors

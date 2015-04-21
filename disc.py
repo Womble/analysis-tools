@@ -2,10 +2,9 @@ import numpy as np
 from scipy import optimize
 from random import random as rnd, randint as rndint, normalvariate as nv
 import genetic as g
-from complete import cube_convolve
+from utils import cube_convolve, cube_convolve, stripStokes
 import pyfits as P
 import sys,os
-from complete import cube_convolve, stripStokes
 from matplotlib.cm import RdBu_r as cm
 import matplotlib
 from pylab import plot, imshow, clf, colorbar, figure, draw ,savefig
