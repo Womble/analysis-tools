@@ -413,78 +413,11 @@ for the recombinations, we assume all ionised material is at 10^4K"""
 
     def ionisedRhoCube(self, size, zeros=3, verbose=0):
         "interpolates the density of ionised material onto a cube of shape cubeshape, anti-alias by a factor of aa"
-        nx=size
-        ny=nz=size/2
-        xgd,ygd,zgd=np.mgrid[-1:1:nx*1j,0:1:ny*1j, -0.5:0.5:nz*1j]*self.R.max()
-        zgd=np.abs(zgd)
-        zgd/=self.R.max()/self.rho().shape[0];
-        zgd[zgd>=self.rho().shape[0]]=self.rho().shape[0]*0.999999
-
-        xgd*=xgd
-        ygd*=ygd
-        rgd =xgd
-        rgd+=ygd
-        rgd =np.sqrt(rgd);
-        rgd/=self.R.max()/self.rho().shape[0]   #setting up r and theta grids, these grids will be large so avoid redundant array creation
-
-        qgd =(np.arctan2(rgd,zgd))
-        qgd/=(0.5*pi)
-        qgd*=self.rho().shape[1]*0.999999
-
-        rgd[rgd>=self.rho().shape[0]]=self.rho().shape[0]*0.999999
-        qgd[qgd>=self.rho().shape[1]]=self.rho().shape[1]*0.999999
-
-#        del xgd, ygd, zgd
-
-        rholerp=ut.interpArray(self.rho()*self.ionisation())
-        rhoIon=np.empty_like(rgd, dtype=np.float32)
-        coords=iter(zip(rgd.flat,qgd.flat))
-        for x in np.nditer(rhoIon, op_flags=['readwrite']):
-            x[...]=rholerp[coords.next()]
-
-#        rhoIon=interpn(np.array((self.R.flatten(), self.Z.flatten())).T, ri.flatten(), (np.sqrt(xgd**2+ygd**2),abs(zgd)), method='linear', fill_value=1e-30)
-        scale=((self.rho()*self.ionisation())**2*self.vol).sum()*2*pi/self.dphi*2 / (rhoIon**2*(2*self.R.max()/nx)**3).sum()  #ensure sum(n_e**2) is constant after interpolation by scaling 
-        if verbose:
-            print "sum(rhoi**2*vol) %.3e"%(((self.rho()*self.ionisation())**2*self.vol).sum()*2*pi/self.dphi*2)
-            print "sum(cube**2*vol) %.3e"%((rhoIon**2*(2*self.R.max()/nx)**3).sum())
-            print "scaling by %.3f"%sqrt(scale)
-        return (rhoIon*sqrt(scale))
+        return np.sqrt(self.makeCube((self.rho()*self.ionisation())**2, size, zeros,verbose,scale=1))
 
     def temperatureCube(self, size, zeros=3, verbose=0):
         "interpolates the temperature onto a cube of shape cubeshape, anti-alias by a factor of aa"
-        nx=size
-        ny=nz=size/2
-        xgd,ygd,zgd=np.mgrid[-1:1:nx*1j,0:1:ny*1j, -0.5:0.5:nz*1j]*self.R.max()
-        zgd=np.abs(zgd)
-        zgd/=self.R.max()/self.rho().shape[0];
-        zgd[zgd>=self.rho().shape[0]]=self.rho().shape[0]*0.999999
-
-        xgd*=xgd
-        ygd*=ygd
-        rgd =xgd
-        rgd+=ygd
-        rgd =np.sqrt(rgd);
-        rgd/=self.R.max()/self.rho().shape[0]   #setting up r and theta grids, these grids will be large so avoid redundant array creation
-
-        qgd =(np.arctan2(rgd,zgd))
-        qgd/=(0.5*pi)
-        qgd*=self.rho().shape[1]*0.999999
-
-        rgd[rgd>=self.rho().shape[0]]=self.rho().shape[0]*0.999999
-        qgd[qgd>=self.rho().shape[1]]=self.rho().shape[1]*0.999999
-
-        templerp=ut.interpArray(self.T())
-        temp=np.empty_like(rgd, dtype=np.float32)
-        coords=iter(zip(rgd.flat,qgd.flat))
-        for x in np.nditer(temp, op_flags=['readwrite']):
-            x[...]=templerp[coords.next()]
-
-        scale=((self.T()*self.vol).sum()*2*pi/self.dphi*2) / (temp**2*(2*self.R.max()/nx)**3).sum()  #ensure sum(n_e**2) is constant after interpolation by scaling 
-        if verbose:
-            print "sum(selfT*vol) %.3e"%((self.T()*self.vol).sum()*2*pi/self.dphi*2)
-            print "sum(cubeT*vol) %.3e"%((temp**2*(2*self.R.max()/nx)**3).sum())
-            print "scaling by %.3f"%sqrt(scale)
-        return (temp*sqrt(scale))
+        return self.makeCube(self.T(), size, zeros,verbose,scale=1)
 
     def velocityCubes(self, size, zeros=3, verbose=0):
         return np.array([self.makeCube(self.U1(), size, zeros,verbose,scale=0),  self.makeCube(self.U2(), size, zeros,verbose,scale=0),  self.makeCube(self.Uphi(), size, zeros,verbose,scale=0)])
