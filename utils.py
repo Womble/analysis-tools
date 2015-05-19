@@ -33,6 +33,14 @@ Cannot use fractional indexing in slices, only for single points"""
         except TypeError:
             return self.view(np.ndarray).__getitem__(index)
 
+def div (V):
+    "assumes vector field will be a rank n+1 array with shape [n,x_1,x_2,...,x_n]"
+    gv=np.gradient(V)
+    x=gv[0,0,...]
+    for i in xrange(1,len(V.shape)):
+        x+=gv[i,i,...]
+    return x
+
 def laplacian (X):
     gx=np.gradient(X)
     shape=X.shape
