@@ -6,7 +6,7 @@ import xqreader as xq
 import numpy as np
 from scipy import constants as cns
 from scipy.integrate import quad
-from scipy.interpolate import UnivariateSpline,griddata,interpn
+from scipy.interpolate import UnivariateSpline,griddata
 import pylab as pyl
 import dill
 import FreeFree as ff
@@ -382,7 +382,7 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         ygd*=ygd
         rgd =xgd
         rgd+=ygd
-        rgd =np.sqrt(rgd);
+        rgd[...]=np.sqrt(rgd);
         rgd/=self.R.max()/arr.shape[0]   #setting up r and theta grids, these grids will be large so avoid redundant array creation
 
         qgd =(np.arctan2(rgd,zgd))
@@ -420,8 +420,15 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         return self.makeCube(self.T(), size, zeros,verbose,scale=1)
 
     def velocityCubes(self, size, zeros=3, verbose=0):
-        return np.array([self.makeCube(self.U1(), size, zeros,verbose,scale=0),  self.makeCube(self.U2(), size, zeros,verbose,scale=0),  self.makeCube(self.Uphi(), size, zeros,verbose,scale=0)])
-
+        V=np.array([self.makeCube(self.U1(), size, zeros,verbose,scale=0),  self.makeCube(self.U2(), size, zeros,verbose,scale=0),  self.makeCube(self.Uphi(), size, zeros,verbose,scale=0)])
+        V_cart=V.copy()
+        x,y,z=np.mgrid[-size//2:size//2, 0:size//2, -size//4:size//4]
+        theta=np.arctan2(x,y)
+        V_cart[0,...]=V[0,...]*np.sin(theta)+V[2,...]*np.cos(theta)
+        V_cart[1,...]=V[2,...]*np.sin(theta)+V[0,...]*np.cos(theta)
+        V_cart[2,...]=V[1,...]
+        V_cart[2,:,:,:size//4]*=-1
+        return V_cart
 
 #    def velocityCubes(self, cubeShape):
 #        nx,ny,nz=cubeShape

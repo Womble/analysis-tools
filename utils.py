@@ -185,6 +185,13 @@ def cube_convolve(imcube, sigma, inplace=0, normalise=1):
         imcube[i,...]=np.real(ifft2(fft2(imcube[i,...],s)*ftg)[shape[0]/2:3*shape[0]/2, shape[1]/2:3*shape[1]/2])
     return imcube
 
+def convolve_3dg(arr1, sigma):
+    s=arr1.shape
+    arrs=np.mgrid[0:s[0],0:s[1],0:s[2]]
+    arr2=np.exp( -((arrs**2).sum(0)/float(sigma)**2) )
+    arr2/=arr2.sum()
+    return np.fft.irfftn(np.fft.rfftn(arr1)*np.fft.rfftn(arr2))
+
 def convolve (arr1, arr2):
     "convolves 2 arrays together with fft, arrays will be zero padded to equal size"
     if max(len(arr1.shape), len(arr2.shape)) > 2: raise ValueError("only dealing with 2d convolves here thankyou")
