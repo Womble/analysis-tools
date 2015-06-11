@@ -15,7 +15,11 @@ from matplotlib import rcParams
 
 #rcParams['text.usetex'] = True
 
-from numpy import pi
+#array logical function shorthands
+lNot=np.logical_not
+lAnd=np.logical_and
+lOr=np.logical_or
+lXor=np.logical_xor
 
 m_sol=1.989e30
 r_sol=6.955e8
@@ -71,7 +75,7 @@ class disc ():
                 u2Lin=griddata (u2arr[:,0:2], u2arr[:,2], (R,Z), method='linear')
                 LLin=griddata  (Larr[:,0:2],  Larr[:,2],  (R,Z), method='linear')
                 
-                mask=np.logical_not(reduce(np.logical_or, [np.isnan(rhoLin),np.isnan(pgLin),np.isnan(u1Lin),np.isnan(u2Lin),np.isnan(LLin)]))
+                mask=lNot(reduce(lOr, [np.isnan(rhoLin),np.isnan(pgLin),np.isnan(u1Lin),np.isnan(u2Lin),np.isnan(LLin)]))
                 #mask out any elements which have a nan for any variable 
                 
                 rho[mask]=rhoLin[mask]
@@ -220,23 +224,31 @@ class disc ():
         
         return disc((rho*self.unitLength**3,u1/self.unitLength,u2/self.unitLength,pg*self.unitLength,L/self.unitLength**2))
 
-    def massflux(self,sum=1, debug=0,stripSubSonic=1.0/3, unboundOnly=1 ,frac=0.9, mask=None, centralMass=10*m_sol):
-        rho=self.rho().copy()
+    def massflux(self,sum=1, debug=0,stripSubSonic=False, unboundOnly=1 ,frac=0.9, mask=None, centralMass=10*m_sol):
+        rho=self.rho()
         if np.any(mask) : rho=rho*mask
-        if unboundOnly: rho[self.boundGas(centralMass)]*=0
-        if stripSubSonic : rho[self.ke()<(stripSubSonic*self.pg())]*=0
+        if unboundOnly: rho[self.boundGas(centralMass)]=0
+        if stripSubSonic : rho[self.ke(incRot=1)<(stripSubSonic*self.pg())]=0
         mom_r_rq=self.Ur()*rho
         mom_r_rq[mom_r_rq<0]=0 #dont subtract material moving inward from the mass calculation
-        arr=mom_r_rq[int(rho.shape[0]*frac),:]*np.sin(np.linspace(0,pi/2,mom_r_rq.shape[1])) #sin (phi) included here
-        if debug: return(rho,arr.sum()*3600*24*365.25/m_sol * 4*pi*(frac*max(self.r().max(),self.Z.max()))**2 *(pi/2)/arr.size)
-        elif sum :return arr.sum()*3600*24*365.25/m_sol * 4*pi*(frac*self.r().max())**2 *(pi/2)/arr.size
-        else     :return arr*3600*24*365.25/m_sol       * 4*pi*(frac*self.r().max())**2 *(pi/2)/arr.size # r.d_phi * 2 pi r sin(phi)   * 2
+        mom_r_rq*=self.vol
+        mom_r_rq/=self.dr #rho.v *dv /dr =momflux*cellarea =massflux per cell
+        mom_r_rq*=2*pi/self.dphi #mass flux per latitude
+        arr=2*mom_r_rq[int(rho.shape[0]*frac),:] # double for both disc halves
+#        arr*=np.sin(np.linspace(0,pi/2,arr.shape[0])) #sin (phi) included here
+#        if debug: return(rho,arr.sum()*3600*24*365.25/m_sol * 4*pi*(frac*max(self.r().max(),self.Z.max()))**2 *(pi/2)/arr.size)
+#        elif sum :return arr.sum()*3600*24*365.25/m_sol * 4*pi*(frac*self.r().max())**2 *(pi/2)/arr.size
+#        else     :return arr*3600*24*365.25/m_sol       * 4*pi*(frac*self.r().max())**2 *(pi/2)/arr.size # r.d_phi * 2 pi r sin(phi)   * 2
+
+        if debug: return(rho,arr.sum()*3600*24*365.25/m_sol) # * 4*pi*(frac*max(self.r().max(),self.Z.max()))**2 *(pi/2)/arr.size)
+        elif sum :return arr.sum()*3600*24*365.25/m_sol #* 4*pi*(frac*self.r().max())**2 *(pi/2)/arr.size
+        else     :return arr*3600*24*365.25/m_sol       #* 4*pi*(frac*self.r().max())**2 *(pi/2)/arr.size # r.d_phi * 2 pi r sin(phi)   * 2
 
     def discPolarRatio(self, centralMass,debug=0, frac=0.9):
         phi=self.massflux(sum=0, frac=frac)
         mask=self.discMaterial(centralMass)[self.rho().shape[0]*frac,:]
-        if debug : return [phi[mask],phi[np.logical_not(mask)]]
-        return phi[mask].sum()/phi[np.logical_not(mask)].sum()
+        if debug : return [phi[mask],phi[lNot(mask)]]
+        return phi[mask].sum()/phi[lNot(mask)].sum()
 
     def boundGas(self, centralMass):
         if centralMass <1e6: centralMass*=m_sol #assume masses < 1e6 are in solar mass not kg
@@ -244,26 +256,26 @@ class disc ():
 
     def discMaterial(self, centralMass):
         if centralMass <1e6: centralMass*=m_sol #assume masses < 1e6 are in solar mass not kg
-        return (self.L()>np.sqrt(self.R*centralMass*cns.G)/10) # material is from the disc if it has at least 50% of its material with angular momentum > that of the disc at the stellar surface
+        return (self.L()>(np.sqrt(self.R*centralMass*cns.G)/10)) # material is from the disc if it has at least 50% of its material with angular momentum > that of the disc at the stellar surface
     
     def avePolarVel(self, centralMass=10*m_sol, ionisedOnly=False, neutralOnly=False):
-        mask = np.logical_and(np.logical_not(self.discMaterial(centralMass)), np.logical_not(self.boundGas(centralMass)))
+        mask = lAnd(lNot(self.discMaterial(centralMass)), lNot(self.boundGas(centralMass)))
         if ionisedOnly  :mask=mask*self.ionisation()
         elif neutralOnly:mask=mask*abs(1-self.ionisation())
         return (mask*self.Uplane()*self.vol).sum()/(mask*self.vol).sum()
 
     def aveDiscVel(self, centralMass=10*m_sol, ionisedOnly=False, neutralOnly=False):
-        mask = np.logical_and(self.discMaterial(centralMass), np.logical_not(self.boundGas(centralMass)))
+        mask = lAnd(self.discMaterial(centralMass), lNot(self.boundGas(centralMass)))
         if ionisedOnly :mask=mask*self.ionisation()
         elif neutralOnly:mask=mask*abs(1-self.ionisation())
         return (mask*self.Uplane()*self.vol).sum()/(mask*self.vol).sum()
 
     def discIonFraction(self, centralMass):
-        mask=np.logical_and(self.discMaterial(centralMass),np.logical_not(self.boundGas(centralMass)))
+        mask=lAnd(self.discMaterial(centralMass),lNot(self.boundGas(centralMass)))
         return (self.mass()*self.ionisation()*mask).sum()/(self.mass()*mask).sum()
 
     def windPerformance(self, sum=1, frac=0.9):
-        "from sim2004 for spherical winds it is given by Phi.v_inf.c/L* where Phi is the mass loss rate, instead in do mass loss integral * v.c/L*"
+        "from sim2004 for spherical winds it is given by Phi.v_inf.c/L_* where Phi is the mass loss rate, instead in do mass loss integral * v.c/L*"
         vr_rq=self.Ur()
         vr_rq[vr_rq<0]=0
         massflux=self.massflux(sum=0, frac=frac)*m_sol/(3600*24*365.25)
@@ -352,8 +364,8 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         if lyn:
             mask=n2r2_sum<(nphot_lyn)
             ionise+=mask*1.0 #total ionisation when sum(n^2 r^2 dr) < number of >=13.6ev photons otherwise default to 1e-50
-            borders=np.logical_xor(mask, np.roll(mask,1,0))
-            borders=np.logical_xor(mask,borders) #gives a mask for the first element that is thick to the lyman column
+            borders=lXor(mask, np.roll(mask,1,0))
+            borders=lXor(mask,borders) #gives a mask for the first element that is thick to the lyman column
             last=np.roll(borders,-1,0)           #gives a mask for the last  element that is thin  to the lyman column
             ionise[borders]+=(nphot_lyn-n2r2_sum[last])/(n2r2[borders]) #increase ionise by the ratio of the  contents of the border cell to the number of leftover photons
                               
@@ -690,8 +702,9 @@ def mergeDiscs (d1, d2):
     if d1.r().max()>d2.r().max(): priority=1
     else                        : priority=0
     discs=(d1,d2)
-    shape=d1.R.shape
     dbig,dsmall=discs[not(priority)],discs[priority]
+    assert d1.R.shape[1] == d2.R.shape[1]
+    shape=dbig.R.shape
     rhoL,u1L,u2L,pgL,LL=dbig.rho(),dbig.U1(),dbig.U2(),dbig.pg(),dbig.L()
     rhoS,u1S,u2S,pgS,LS=dsmall.rho(),dsmall.U1(),dsmall.U2(),dsmall.pg(),dsmall.L()
     rmax=dsmall.r().max()

@@ -2,6 +2,7 @@ from random import random
 import numpy as np
 from numpy.random import randint
 from scipy.optimize import fmin_bfgs
+from utils import niceim
 
 rndint=np.frompyfunc(randint,1,1)
 
@@ -9,31 +10,37 @@ _test_dat_=x=np.array([np.linspace(5,25),8-2*np.exp((-(np.linspace(5,25)-12.)**2
 #poolSize=500
 #its=500
 
-def graphical_test():
+def graphical_test(satisfactory=0):
     from matplotlib import cm, pylab
     def cons():
-        return np.random.random(2)
+        return np.random.random(2)*4-2
 
-    def foo(x,y,n):
-        x=x-0.5
-        y=y-0.5
-        r=np.sqrt(x*x+y*y)
-        theta=np.arctan2(y,x)
-        return 1-np.cos(r*n)*np.cos(theta+r*n*np.pi)/(1+r)
+    def foo(x,y,a,b):
+        "banana function"
+        tmp=a-x
+        tmp*=tmp
+        out=-x*x
+        out+=y
+        out*=out
+        out*=b
+        out+=tmp
+        return out*(abs(np.cos((x-1)**2+(y-1)**2))+10.0/b)
     def f(params):
-        return foo(params[0], params[1],15)
+        return foo(params[0], params[1],1,100)
 
-    optimizer=optimize(f, cons, verbose=False,its=1, hillWalks=0, satisfactory=0, finalWalk=0)
+    optimizer=optimize(f, cons, verbose=False,its=1, hillWalks=0, satisfactory=satisfactory, finalWalk=0)
     
-    bg=foo(np.mgrid[0:1:0.001,0:1:0.001][0],np.mgrid[0:1:0.001,0:1:0.001][1], 15)
+    bgx,bgy=np.mgrid[-2:2:1000j,-2:2:1000j]
+    bg=foo(bgx,bgy, 1,100)
     for i in xrange(20):
         pylab.clf()
-        pylab.imshow(bg, cmap=cm.RdBu)
-        for x in optimizer.pool: pylab.plot(x[2]*1000,x[1]*1000, ('gx'))
+        pylab.imshow(bg, cmap=cm.RdBu,vmax=bg.mean()/10)
+        for x in optimizer.pool: pylab.plot((x[2]+2)/4*1000,(x[1]+2)/4*1000, ('gx'))
         print optimizer.pool[0],optimizer.muterate
         pylab.gca().set_xbound(0,1000)
         pylab.gca().set_ybound(0,1000)
         pylab.draw()
+        pylab.colorbar()
         optimizer.run()
         raw_input('enter to advance')
     return optimizer
@@ -114,7 +121,7 @@ def _mute_ (vals, muterate=100):
 
 def _detri_ (x): return int(np.sqrt(x)*np.sqrt(2))
 
-def _hillWalk_(f,A,verbose=False, maxits=None):
+def _hillWalk_(f,A,verbose=False, maxits=None): 
     "takes a fitness function (of airity len(A-1)) and a list of [fitness, parameters] and moves it in parameter space up its local gradient"
     new=list(fmin_bfgs(f, A[1:],disp=False, maxiter=maxits))
     return np.concatenate(([f(new)], new))
