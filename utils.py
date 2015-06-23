@@ -8,6 +8,12 @@ from scipy import constants as cns
 from scipy.interpolate import griddata
 from numpy.fft import fft2,ifft2, irfft2, rfft2
 
+#array elementwise logical ops, shorthand
+lNot=np.logical_not
+lAnd=np.logical_and
+lOr=np.logical_or
+lXor=np.logical_xor
+
 class interpArray(np.ndarray):
     """interpolateably nd array: fractional indices give linear interpolations between points 
 For an N dimensional array uses (1+N) times as much memory
@@ -119,7 +125,7 @@ def arr2h (data, name, opath='temp.h'):
                         if ns[::-1][i+1]==0: 
                             of.write('\n')
                         else: of.write(',\n')
-    of.write('};\n')#close the array  
+    of.write('};\n\n')#close the array  
 
 def getfits (path='./', *iname):
     return [x for x in os.walk(path).next()[2] if len(x)>=5 and (x[-5:]=='.fits' or x[-8:]=='.fits.gz') and all([y in x for y in ['']+list(iname)])]
@@ -197,6 +203,13 @@ def convolve (arr1, arr2):
     if max(len(arr1.shape), len(arr2.shape)) > 2: raise ValueError("only dealing with 2d convolves here thankyou")
     s=(int(max(arr1.shape[0],arr2.shape[0])*1.5),int(max(arr1.shape[1],arr2.shape[1])*1.5))
     return irfft2(rfft2(arr1,s)*rfft2(arr2,s))
+
+def Planck(nu, T, cgs=False):
+    "planck function in SI units (unless flagged cgs)"
+    if cgs:
+        return 1000 * 2*cns.h*nu**3/cns.c**2 / (np.exp(cns.h*nu/(cns.k*T))-1)
+    else:
+        return 2*cns.h*nu**3/cns.c**2 / (np.exp(cns.h*nu/(cns.k*T))-1)
 
 def strech_arr(arr, axis=0, factor=2, conserveSum=False):
     "increase the dimensions of array arr by factor along axis, if conserveSum is True then the array if divided by factor so that its sum remains the same"
@@ -293,6 +306,14 @@ def polarSlice2Cube (Slice, zaxis=1, size=None, mode='nearest'):
 _quadadd= lambda x: np.sqrt((x*x).sum())
 def quad_add (array, axis=0):
     return np.apply_along_axis(_quadadd, axis, array)
+
+def powerfit (x,y):
+    "fits a function of the form y=B*x^A and returns the tuple (A,B)"
+    xx=np.log10(x)
+    yy=np.log10(y)
+    ans=np.polyfit(xx,yy,1)
+    return (ans[0],10.0**ans[1])
+    
 
 def niceim (arr, cutFrac=0.001, log=False, centreZero=False, **kwargs):
     if log : arr=np.log10(arr)

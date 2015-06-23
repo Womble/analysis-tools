@@ -1,7 +1,7 @@
 from __future__ import division
 from math import *
 import utils as ut
-import pyfits as P
+from utils import lNot, lAnd, lOr, lXor
 import xqreader as xq
 import numpy as np
 from scipy import constants as cns
@@ -13,14 +13,7 @@ import FreeFree as ff
 from mpl_toolkits.axes_grid1 import ImageGrid
 from matplotlib import rcParams
 
-#rcParams['text.usetex'] = True
-
-#array logical function shorthands
-lNot=np.logical_not
-lAnd=np.logical_and
-lOr=np.logical_or
-lXor=np.logical_xor
-
+#constants
 m_sol=1.989e30
 r_sol=6.955e8
 L_sol=3.839e26
@@ -143,7 +136,7 @@ class disc ():
         self._pg    =pg
         self._rho[np.isnan(self._pg)]=np.nanmin(self._pg)
         self._L     =L 
-        self._rho[np.isnan(self._L)]=np.nanmin(self._L)
+        self._L[np.isnan(self._L)]=np.nanmin(self._L)
         #paranoid nan(droid) removal
 
         self.rho   =lambda :self._rho.copy()
@@ -169,6 +162,17 @@ class disc ():
         self._U2[self._pg<0.01*self.ke()]*=sqrt(0.99) # ie mach number of the gas is limited to 100
        
         self.ionisation=ut.memoize(self.ionisation) 
+
+    def coerce2RZ (self, array, shape=(900,600)):
+        scale=np.sqrt(shape[0]*shape[0]+shape[1]*shape[1])
+        out=np.zeros(shape, dtype=np.float)
+        lerp=ut.interpArray(array)
+        
+        for R in xrange(shape[0]):
+            for z in xrange(shape[1]):
+                out[R,z]=lerp[sqrt(R*R+z*z)/scale*array.shape[0]-1e-3,np.arctan2(R,z)*2/pi*array.shape[1]-1e-3]
+        return out
+
 
     def ke (self, incRot=0):
         if incRot: ans=self.rho()*np.sqrt(self.U1()**2+self.U2()**2+self.Uphi()**2)/2
@@ -365,7 +369,7 @@ for the recombinations, we assume all ionised material is at 10^4K"""
             mask=n2r2_sum<(nphot_lyn)
             ionise+=mask*1.0 #total ionisation when sum(n^2 r^2 dr) < number of >=13.6ev photons otherwise default to 1e-50
             borders=lXor(mask, np.roll(mask,1,0))
-            borders=lXor(mask,borders) #gives a mask for the first element that is thick to the lyman column
+            borders[0,:]=False #gives a mask for the first element that is thick to the lyman column
             last=np.roll(borders,-1,0)           #gives a mask for the last  element that is thin  to the lyman column
             ionise[borders]+=(nphot_lyn-n2r2_sum[last])/(n2r2[borders]) #increase ionise by the ratio of the  contents of the border cell to the number of leftover photons
                               
@@ -383,11 +387,15 @@ for the recombinations, we assume all ionised material is at 10^4K"""
     
     def makeCube(self, arr, size, zeros=3, verbose=0, scale=1):
         "interpolates the density of ionised material onto a cube of shape cubeshape, anti-alias by a factor of aa"
+        length=self.R.max()
         nx=size
-        ny=nz=size/2
-        xgd,ygd,zgd=np.mgrid[-1:1:nx*1j,0:1:ny*1j, -0.5:0.5:nz*1j]*self.R.max()
+        ny=nz=size//2
+        degrade=min(0, int(round(np.log10(min(arr.shape)/ny)-2)))
+        for i in xrange(degrade):
+            arr=ut.degrade_arr(ut.degrade_arr(arr,0),1)
+        xgd,ygd,zgd=np.mgrid[-1:1:nx*1j,0:1:ny*1j, -0.5:0.5:nz*1j]*length
         zgd=np.abs(zgd)
-        zgd/=self.R.max()/self.rho().shape[0];
+        zgd/=length/self.rho().shape[0];
         zgd[zgd>=self.rho().shape[0]]=self.rho().shape[0]*0.999999
 
         xgd*=xgd
@@ -395,7 +403,7 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         rgd =xgd
         rgd+=ygd
         rgd[...]=np.sqrt(rgd);
-        rgd/=self.R.max()/arr.shape[0]   #setting up r and theta grids, these grids will be large so avoid redundant array creation
+        rgd/=length/arr.shape[0]   #setting up r and theta grids, these grids will be large so avoid redundant array creation
 
         qgd =(np.arctan2(rgd,zgd))
         qgd/=(0.5*pi)
@@ -412,85 +420,60 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         for x in np.nditer(out, op_flags=['readwrite']):
             x[...]=lerp[coords.next()]
 
-#        rhoIon=interpn(np.array((self.R.flatten(), self.Z.flatten())).T, ri.flatten(), (np.sqrt(xgd**2+ygd**2),abs(zgd)), method='linear', fill_value=1e-30)
         if scale:
-            scale=(arr*self.vol).sum()*2*pi/self.dphi*2 / (out*(2*self.R.max()/nx)**3).sum()  #ensure sum(n_e**2) is constant after interpolation by scaling 
+            scale=(arr*self.vol).sum()*2*pi/self.dphi*2 / (out*(2*length/nx)**3).sum()  #ensure sum(n_e**2) is constant after interpolation by scaling 
             if verbose:
                 print "sum(rhoi**2*vol) %.3e"%((arr*self.vol).sum()*2*pi/self.dphi*2)
-                print "sum(cube**2*vol) %.3e"%((out*(2*self.R.max()/nx)**3).sum())
+                print "sum(cube**2*vol) %.3e"%((out*(2*length/nx)**3).sum())
                 print "scaling by %.3f"%scale
         else:
             scale=1
+
         return (out*scale)
 
-    def ionisedRhoCube(self, size, zeros=3, verbose=0):
+    def ionisedRhoCube(self, size, zeros=3, verbose=0, surfTemp=None):
         "interpolates the density of ionised material onto a cube of shape cubeshape, anti-alias by a factor of aa"
-        return np.sqrt(self.makeCube((self.rho()*self.ionisation())**2, size, zeros,verbose,scale=1))
+        out=np.sqrt(self.makeCube((self.rho()*self.ionisation(surfTemp))**2, size, zeros,verbose,scale=1))
+        out[-zeros:,...]=1e-99
+        out[:zeros, ...]=1e-99
+        out[:,-zeros:,:]=1e-99
+        out[...,:zeros ]=1e-99
+        out[...,-zeros:]=1e-99
+        return out
+
+    def neutRhoCube(self, size, zeros=3, verbose=0, surfTemp=None):
+        "interpolates the temperature onto a cube of shape cubeshape, anti-alias by a factor of aa"
+        out=self.makeCube(self.rho()*(1-self.ionisation(surfTemp)), size, zeros,verbose,scale=1)
+        out[-zeros:,...]=1e-99
+        out[:zeros, ...]=1e-99
+        out[:,-zeros:,:]=1e-99
+        out[...,:zeros ]=1e-99
+        out[...,-zeros:]=1e-99
+        return out
 
     def temperatureCube(self, size, zeros=3, verbose=0):
         "interpolates the temperature onto a cube of shape cubeshape, anti-alias by a factor of aa"
-        return self.makeCube(self.T(), size, zeros,verbose,scale=1)
+        T=self.T()
+        T[self.ionisation()>0.95]=1.0e4
+        return self.makeCube(self.T(), size, zeros,verbose)
 
     def velocityCubes(self, size, zeros=3, verbose=0):
         V=np.array([self.makeCube(self.U1(), size, zeros,verbose,scale=0),  self.makeCube(self.U2(), size, zeros,verbose,scale=0),  self.makeCube(self.Uphi(), size, zeros,verbose,scale=0)])
-        V_cart=V.copy()
+        V_cart=np.zeros_like(V)
         x,y,z=np.mgrid[-size//2:size//2, 0:size//2, -size//4:size//4]
         theta=np.arctan2(x,y)
         V_cart[0,...]=V[0,...]*np.sin(theta)+V[2,...]*np.cos(theta)
         V_cart[1,...]=V[2,...]*np.sin(theta)+V[0,...]*np.cos(theta)
         V_cart[2,...]=V[1,...]
-        V_cart[2,:,:,:size//4]*=-1
+        V_cart[2,:,:,size//4:]*=-1 #invert v_z for z<0
         return V_cart
 
-#    def velocityCubes(self, cubeShape):
-#        nx,ny,nz=cubeShape
-#        xgd,ygd,zgd=np.mgrid[:nx,:ny,:nz]*self.R.max()/max(nx,ny)/2
-#        phi=np.cos(np.arctan2(ygd,xgd))
-#        RZoomed=interpn(np.array((self.R.flatten(), self.Z.flatten())).T, self.U1().flatten(), (np.sqrt(xgd**2+ygd**2),zgd))
-#        zZoomed=interpn(np.array((self.R.flatten(), self.Z.flatten())).T, self.U2().flatten(), (np.sqrt(xgd**2+ygd**2),zgd))
-#        phiZoomed=interpn(np.array((self.R.flatten(), self.Z.flatten())).T, self.Uphi().flatten(), (np.sqrt(xgd**2+ygd**2),zgd))
-#        xZoomed=RZoomed*np.cos(phi)+phiZoomed*np.sin(phi)
-#        yZoomed=RZoomed*np.sin(phi)+phiZoomed*np.cos(phi)
-#        del RZoomed, phiZoomed, phi
-#        tSmall=ut.degrade_arr(ut.degrade_arr(ut.degrade_arr(xZoomed,0,2,0),1,2,0),2,2,0)
-#        xZoomed[nx/2:,ny/2:,nz/2:]=tSmall[::,  ::,    ::]
-#        xZoomed[nx/2:,:ny/2,nz/2:]=tSmall[::,  ::-1,  ::]
-#        xZoomed[:nx/2,ny/2:,nz/2:]=-tSmall[::-1,::  ,  ::]
-#        xZoomed[:nx/2,:ny/2,nz/2:]=-tSmall[::-1,::-1,  ::]
-#        xZoomed[nx/2:,ny/2:,:nz/2]=tSmall[::,  ::,  ::-1]
-#        xZoomed[nx/2:,:ny/2,:nz/2]=tSmall[::,  ::-1,::-1]
-#        xZoomed[:nx/2,ny/2:,:nz/2]=-tSmall[::-1,::  ,::-1]
-#        xZoomed[:nx/2,:ny/2,:nz/2]=-tSmall[::-1,::-1,::-1]
-#        xZoomed[np.isnan(xZoomed)]=0
-#
-#        tSmall[...]=ut.degrade_arr(ut.degrade_arr(ut.degrade_arr(yZoomed,0,2,0),1,2,0),2,2,0)
-#        yZoomed[nx/2:,ny/2:,nz/2:]=tSmall[::,  ::,    ::]
-#        yZoomed[nx/2:,:ny/2,nz/2:]=-tSmall[::,  ::-1,  ::]
-#        yZoomed[:nx/2,ny/2:,nz/2:]=tSmall[::-1,::  ,  ::]
-#        yZoomed[:nx/2,:ny/2,nz/2:]=-tSmall[::-1,::-1,  ::]
-#        yZoomed[nx/2:,ny/2:,:nz/2]=tSmall[::,  ::,  ::-1]
-#        yZoomed[nx/2:,:ny/2,:nz/2]=-tSmall[::,  ::-1,::-1]
-#        yZoomed[:nx/2,ny/2:,:nz/2]=tSmall[::-1,::  ,::-1]
-#        yZoomed[:nx/2,:ny/2,:nz/2]=-tSmall[::-1,::-1,::-1]
-#        yZoomed[np.isnan(yZoomed)]=0
-#
-#        tSmall[...]=ut.degrade_arr(ut.degrade_arr(ut.degrade_arr(zZoomed,0,2,0),1,2,0),2,2,0)
-#        zZoomed[nx/2:,ny/2:,nz/2:]=tSmall[::,  ::,    ::]
-#        zZoomed[nx/2:,:ny/2,nz/2:]=tSmall[::,  ::-1,  ::]
-#        zZoomed[:nx/2,ny/2:,nz/2:]=tSmall[::-1,::  ,  ::]
-#        zZoomed[:nx/2,:ny/2,nz/2:]=tSmall[::-1,::-1,  ::]
-#        zZoomed[nx/2:,ny/2:,:nz/2]=-tSmall[::,  ::,  ::-1]
-#        zZoomed[nx/2:,:ny/2,:nz/2]=-tSmall[::,  ::-1,::-1]
-#        zZoomed[:nx/2,ny/2:,:nz/2]=-tSmall[::-1,::  ,::-1]
-#        zZoomed[:nx/2,:ny/2,:nz/2]=-tSmall[::-1,::-1,::-1]
-#        zZoomed[np.isnan(zZoomed)]=0
-#
-#        return np.array((xZoomed/1000.0, yZoomed/1000.0, zZoomed/1000.0), dtype=np.float32)
-
     def createFreeFreeRT(self, shape, zeros=3):
-        return ff.freeFree(self.ionisedRhoCube(shape,aa=1,zeros=zeros)/1000.0, 
-                           1.0e4*np.ones(shape, dtype=np.float32), 
-                           self.R.max()*100*2/max(shape[:-1]), velocity=self.velocityCubes(shape))
+        return ff.freeFree(self.ionisedRhoCube(shape,zeros=zeros)/1000.0,
+                           self.neutRhoCube(shape,zeros=zeros)/1000.0,
+                           1.0e4*np.ones_like(self.neutRhoCube(shape,zeros=zeros)),
+                           self.velocityCubes(shape,zeros=zeros)/1000.0, 
+                           self.R.max()*100*2/shape)
         
     def createHeader(self, name, factor=2):
         ut.arr2h(ut.degrade_arr(ut.degrade_arr(np.array([self.rho()*self.unitLength**3, self.U1()/self.unitLength,self.U2()/self.unitLength, self.pg()*self.unitLength, self.L()/self.unitLength**2]),1,factor),2,factor), 'innerDisc_arr', name)
