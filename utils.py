@@ -106,13 +106,13 @@ def arr2h (data, name, opath='temp.h'):
     c=0
     of=open(opath,'w')
     print SS
-    of.write('const static double '+name+''.join(tuple([str([x]) for x in data.shape]))+' = {')
+    of.write('const static float '+name+''.join(tuple([str([x]) for x in data.shape]))+' = {')
     for x in data.flat:
         c+=1
         ns=c%SS
         for n in ns: #if we are are at the start of a block open a brace
             if n==1: of.write('{')
-        of.write("%.3e"%x) #write the element
+        of.write("%.6e"%x) #write the element
         if (ns!=0).all()or c==0: of.write(', ') #if we're not at the end of a block write a comma
         elif c!=0: #if we are at the end of a block close a brace and maybe write a new line
             for (i,n) in enumerate(ns[::-1]):
@@ -203,6 +203,26 @@ def convolve (arr1, arr2):
     if max(len(arr1.shape), len(arr2.shape)) > 2: raise ValueError("only dealing with 2d convolves here thankyou")
     s=(int(max(arr1.shape[0],arr2.shape[0])*1.5),int(max(arr1.shape[1],arr2.shape[1])*1.5))
     return irfft2(rfft2(arr1,s)*rfft2(arr2,s))
+
+def trimCube(cube, thresh, retSlice=0):
+    """returns the silce which trims planes off cube if all the values in the plane are < thresh
+if retSlice=1 return the slice rather than the sliced cube"""
+    sl=[]
+    s=cube.shape
+    for j in xrange(len(s)):
+        a,b,flag=0,s[j]-1,1
+        while flag:
+            tmpsl=[slice(0,s[i]) for i in xrange(j)]+[a]+[slice(0,s[i]) for i in xrange(j+1,len(s))]
+            if (cube[tmpsl]<thresh).all(): a+=1
+            else :flag=0
+        flag=1
+        while flag:
+            tmpsl=[slice(0,s[i]) for i in xrange(j)]+[b]+[slice(0,s[i]) for i in xrange(j+1,len(s))]
+            if (cube[tmpsl]<thresh).all(): b-=1
+            else :flag=0
+        sl.append(slice(a,b+1))
+    if retSlice :return sl
+    else        :return cube[sl]
 
 def Planck(nu, T, cgs=False):
     "planck function in SI units (unless flagged cgs)"
@@ -317,10 +337,9 @@ def powerfit (x,y):
 
 def niceim (arr, cutFrac=0.001, log=False, centreZero=False, **kwargs):
     if log : arr=np.log10(arr)
-    a=sorted(arr.flat)
-    prod=np.product(arr.shape)
-    kwargs['vmin']=a[int(prod*cutFrac)]
-    kwargs['vmax']=a[int(prod*(1-cutFrac))]
+    a=sorted(arr[arr==arr].flat)
+    kwargs['vmin']=a[int(len(a)*cutFrac)]
+    kwargs['vmax']=a[int(len(a)*(1-cutFrac))]
     if centreZero:
         lim=max(abs(kwargs['vmin']), abs(kwargs['vmax']))
         kwargs['vmin']=-lim

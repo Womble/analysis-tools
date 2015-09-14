@@ -336,7 +336,7 @@ class disc ():
         out/=(self.unitLength**2)
         return out
 
-    def ionisation(self, T=None, debug=False, lyn=True, bal=True, zeros=10, inner=None, thermal=True):
+    def ionisation(self, T=None, debug=False, lyn=True, bal=True, zeros=10, inner=None, thermal=True, ionPot=13.5984, C_recomb=False):
         """calculate the ionisation state of the gas given a surface tmperature of the star
 If t is not given then assume BB temp for 8500 L_sol and a radius of unitLength
 if bal then remove atoms thermally excited into n=2 from the column of material
@@ -348,11 +348,11 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         if not(inner==None) :inner=UnivariateSpline(np.linspace(0,pi/2,len(inner)), inner, s=0)
         else                :inner=UnivariateSpline(np.arange(-10,10),np.arange(-10,10)*0)
         n2r2=self.n2r2(zeros)
-        nphot_lyn=nphot(T,3.3e15) #photons with energy for n=1->inf
+        nphot_lyn=nphot(T,ionPot*cns.electron_volt/cns.h) #photons with energy for n=1->inf
         print nphot_lyn
         ionise=np.zeros_like(n2r2)
         if thermal:
-            ionise+=np.exp(-13.6*cns.electron_volt/(k*self.T())) #boltzman distribution giving thermally ionised atoms
+            ionise+=np.exp(-ionPot*cns.electron_volt/(k*self.T())) #boltzman distribution giving thermally ionised atoms
             n2r2*=(1-ionise)**2 #remove thermally ionised from the column
         if bal:
             i_B=2.0/3*np.exp(-3.4*cns.electron_volt/(k*(self.T()))) #boltzman distribution giving proportion of n=2 H atoms 
@@ -360,7 +360,10 @@ for the recombinations, we assume all ionised material is at 10^4K"""
             n2r2*=(1-i_B)**2 #remove atoms in thermally excited to n=2 from the column, assumes thin to lyman -> thin to balmer
         n2r2_sum=n2r2.copy()
         n2r2_sum[zeros,:]=inner(np.linspace(0,pi/2,n2r2_sum.shape[1]))
-        n2r2_sum*=2e-16*self.T()**-0.75
+        if C_recomb:
+            n2r2_sum*=4.27e-29*self.T()**-2.487*np.exp(12260/self.T())
+        else:
+            n2r2_sum*=2e-16*self.T()**-0.75
         n2r2_sum=(n2r2_sum*self.dr).cumsum(0)
         if debug:
             pyl.clf();pyl.imshow(np.log10(n2r2_sum), vmin=np.log10(nphot_lyn)-2);pyl.colorbar()
@@ -393,26 +396,21 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         degrade=min(0, int(round(np.log10(min(arr.shape)/ny)-2)))
         for i in xrange(degrade):
             arr=ut.degrade_arr(ut.degrade_arr(arr,0),1)
-        xgd,ygd,zgd=np.mgrid[-1:1:nx*1j,0:1:ny*1j, -0.5:0.5:nz*1j]*length
+        xgd,ygd,zgd=np.mgrid[-1:1:nx*1j,0:1:ny*1j, -0.5:0.5:nz*1j]
         zgd=np.abs(zgd)
-        zgd/=length/self.rho().shape[0];
-        zgd[zgd>=self.rho().shape[0]]=self.rho().shape[0]*0.999999
 
-        xgd*=xgd
-        ygd*=ygd
-        rgd =xgd
-        rgd+=ygd
-        rgd[...]=np.sqrt(rgd);
-        rgd/=length/arr.shape[0]   #setting up r and theta grids, these grids will be large so avoid redundant array creation
+
+        rgd=np.sqrt(xgd**2+ygd**2)
 
         qgd =(np.arctan2(rgd,zgd))
-        qgd/=(0.5*pi)
-        qgd*=self.rho().shape[1]*0.999999
+        qgd/=(0.5*pi)/arr.shape[1]
+
+        rgd[...]=np.sqrt(xgd**2+ygd**2+zgd**2) #rgd converted to spherical r
+        rgd*=arr.shape[0]
 
         rgd[rgd>=arr.shape[0]]=arr.shape[0]*0.999999
         qgd[qgd>=arr.shape[1]]=arr.shape[1]*0.999999
 
-#        del xgd, ygd, zgd
 
         lerp=ut.interpArray(arr)
         out=np.empty_like(rgd, dtype=np.float32)
@@ -428,7 +426,6 @@ for the recombinations, we assume all ionised material is at 10^4K"""
                 print "scaling by %.3f"%scale
         else:
             scale=1
-
         return (out*scale)
 
     def ionisedRhoCube(self, size, zeros=3, verbose=0, surfTemp=None):
@@ -454,8 +451,7 @@ for the recombinations, we assume all ionised material is at 10^4K"""
     def temperatureCube(self, size, zeros=3, verbose=0):
         "interpolates the temperature onto a cube of shape cubeshape, anti-alias by a factor of aa"
         T=self.T()
-        T[self.ionisation()>0.95]=1.0e4
-        return self.makeCube(self.T(), size, zeros,verbose)
+        return self.makeCube(self.T(), size, zeros,verbose,scale=0)
 
     def velocityCubes(self, size, zeros=3, verbose=0):
         V=np.array([self.makeCube(self.U1(), size, zeros,verbose,scale=0),  self.makeCube(self.U2(), size, zeros,verbose,scale=0),  self.makeCube(self.Uphi(), size, zeros,verbose,scale=0)])
@@ -468,10 +464,11 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         V_cart[2,:,:,size//4:]*=-1 #invert v_z for z<0
         return V_cart
 
-    def createFreeFreeRT(self, shape, zeros=3):
-        return ff.freeFree(self.ionisedRhoCube(shape,zeros=zeros)/1000.0,
-                           self.neutRhoCube(shape,zeros=zeros)/1000.0,
-                           1.0e4*np.ones_like(self.neutRhoCube(shape,zeros=zeros)),
+    def createFreeFreeRT(self, shape, zeros=5):
+        return ff.freeFree(self.ionisedRhoCube(shape,zeros=zeros)/1000.0+1e-30,
+                           self.neutRhoCube(shape,zeros=zeros)/1000.0+1e-30,
+                           np.minimum(1.0e4*np.ones_like(self.neutRhoCube(shape,zeros=zeros)),
+                                      self.temperatureCube(shape,zeros=zeros)),
                            self.velocityCubes(shape,zeros=zeros)/1000.0, 
                            self.R.max()*100*2/shape)
         
@@ -529,6 +526,15 @@ for the recombinations, we assume all ionised material is at 10^4K"""
         dill.dump(self,file,protocol=-1)
         return 0
 
+    def disc2header(self,name):
+        out=np.array([self.rho(),
+                      self.ionisation(),
+                      np.fmin(self.T(), np.ones_like(self.T())*1e4),
+                      self.U1(),
+                      self.U2(),
+                      self.Uphi()])
+        ut.arr2h(out, 'disc', name)
+        return 0
 
 
 def getConstRadius(arr, radius=0.9):
