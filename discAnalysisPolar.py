@@ -729,5 +729,3 @@ def createStarwindHeader(name):
     out=np.array([np.linspace(0,10,2048),rhoSpline(np.linspace(0,10,2048)),uSpline(np.linspace(0,10,2048)),pgSpline(np.linspace(0,10,2048))]).T
     ut.arr2h(out,'star_arr',name+'.h')
 
-nulldisc=disc([np.arange(8).reshape((2,2,2))]*7)
-
