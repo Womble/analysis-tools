@@ -3,6 +3,8 @@ from vtk.util import numpy_support as VN
 import numpy as np
 from math import *
 from matplotlib.mlab import griddata
+from numpy import logical_and as lAnd
+from numpy import logical_or as lOr
 
 lAnd=np.logical_and
 lOr =np.logical_or
@@ -26,7 +28,7 @@ def parseDump (filename):
     return cells,celldata,points
 
 def parseSource(filename):
-    X=np.fromfile(filename).astype(float32)
+    X=np.fromfile(filename).astype(np.float32)
     radius,lum,teff,mass,mdot=X[14],X[16]/Lsol_cgs,X[18],X[22]/msol_g,X[26]/msol_g*year_s
     return radius,lum,teff,mass,mdot# in R_sol,L_sol,K,msol,msol/s
     
@@ -82,25 +84,41 @@ class Grid():
         self.cellsize=np.array(sizes)
         self.points=loc
         self.pos=np.array(pos)
+        self.rThetaPos=np.zeros([self.pos.shape[0],2], dtype=np.float32)
+        self.rThetaPos[:,0]=np.sqrt((self.pos**2).sum(1))
+        self.rThetaPos[:,1]=np.arctan2(self.pos[:,0],self.pos[:,1])
+        self.r=self.rThetaPos[:,0]
+        self.theta=self.rThetaPos[:,1]
+        self.rThetaPos[:,1]=np.arctan2(self.pos[:,0],self.pos[:,1])
+        self.normr=self.pos/self.r.reshape([self.pos.shape[0],1])
         self.cellvol=self.cellsize**2*2*pi*self.pos[:,0]
         self.rho=VN.vtk_to_numpy(celldata.GetArray('rho'))
-        self.pressure=VN.vtk_to_numpy(celldata.GetArray('pressure'))
+        self.pressure=VN.vtk_to_numpy(celldata.GetArray('pressure'))*griddistancescale
         self.temp=VN.vtk_to_numpy(celldata.GetArray('temperature'))
         self.dustFrac=VN.vtk_to_numpy(celldata.GetArray('dust1'))
         self.rhou=VN.vtk_to_numpy(celldata.GetArray('rhou'))
         self.rhov=VN.vtk_to_numpy(celldata.GetArray('rhov'))
         self.rhow=VN.vtk_to_numpy(celldata.GetArray('rhow'))
+        self.vel=(np.array([self.rhou/self.rho,self.rhow/self.rho])).T
         self.jnu=VN.vtk_to_numpy(celldata.GetArray('jnu'))
         self.HI=VN.vtk_to_numpy(celldata.GetArray('HI'))
         self.phi=VN.vtk_to_numpy(celldata.GetArray('phi'))
+        self.phi=50*msol_g*G_cgs/(self.r*griddistancescale)
         self.KE_lin=0.5*(self.rhou**2+self.rhow**2)/self.rho**2
         self.KE_rot=0.5*(self.rhov/(griddistancescale*self.pos[:,0]))**2/self.rho**2
         self.KE=self.KE_rot+self.KE_lin
-        self.boundness=abs(self.phi)/(self.pressure+self.KE)
+        self.boundness=abs(self.phi)/self.KE
         if sourcefile:
             self.starRadius,self.starLum,self.starTeff,self.starMass,self.starMdot=parseSource(sourcefile)
         else:
-            self.mass=starMass*msol_g
+            self.starMass=starMass*msol_g
+        self.phi+=self.starMass*G_cgs/(self.r*griddistancescale)
+        self.rThetaVel=np.zeros([self.rho.size,2], dtype=np.float32)
+        self.rThetaVel[:,0]=self.vel[:,0]*np.sin(self.rThetaPos[:,1])\
+                           +self.vel[:,1]*np.cos(self.rThetaPos[:,1])
+        self.rThetaVel[:,1]=self.vel[:,0]*np.cos(self.rThetaPos[:,1])\
+                           -self.vel[:,1]*np.sin(self.rThetaPos[:,1])
+        
         
         
     def massWithinRadius(self, radius):
@@ -163,11 +181,14 @@ class Grid():
         return totflux/msol_g*year_s
 
     def griddata(self, data, Rmax=7e7, Zmin=0, Zmax=3.5e7, n=200):
+        smallestcellsize=self.cellsize.min()
+        n=min(n, Rmax/smallestcellsize*2)
+        n=min(n, (Zmax-Zmin)/smallestcellsize*2)
         R,z=np.mgrid[0:Rmax:n*1j,Zmin:Zmax:n*1j]
         return griddata(self.pos[:,0], self.pos[:,1],data, R,z, interp='linear')
 
-    def discMask(self):
-        return lAnd(self.KE_rot>self.KE_lin, self.KE_rot>abs(self.phi))
+    def discMask(self, rmax=1e7):
+        return lAnd(self.r<rmax,lAnd(self.KE_rot>np.abs(self.phi)/10,lAnd(self.KE_rot>self.KE_lin, self.boundness>=1)))
     
     def ToomreUnstable(self):
         discMask=self.discMask()
@@ -194,21 +215,37 @@ class Grid():
         Q=Omega*cs/(boundMassSigma*G_cgs*pi)
         return Rs/au_cm,Q
 
+    def outflowing(self, rmin=0, boundnessLim=1):
+        mask=self.boundness<boundnessLim
+        m2=(self.rhou*self.normr[:,0]+self.rhow*self.normr[:,1])>0
+        mask=lAnd(mask, m2)
+        m2[...]=self.r>rmin
+        return lAnd(mask,m2)
+    
     def outflowMomentum(self, rmin=0, boundnessLim=1):
-        totflux=0.0
-        for i in xrange(self.rho.size):
-            if self.boundness[i]<boundnessLim:
-                vec=self.pos[i,:]
-                modvec=np.sqrt((vec**2).sum())
+        mask=self.outflowing(rmin=0, boundnessLim=1)
 
-                if modvec>=rmin:
-                    vec/=modvec
-                    flux= (self.rhou[i]*vec[0]+\
-                           self.rhow[i]*vec[1])*self.cellvol[i]*griddistancescale**3 #g.cm^-3
-                    flux=max(flux,0)
-                    totflux+=flux
+        flux= (self.rhou[mask]*self.normr[:,0][mask]+\
+               self.rhow[mask]*self.normr[:,1][mask])*self.cellvol[mask]*griddistancescale**3 #g.cm^-3
 
-        return totflux/msol_g/1e5 #momentum in msol.km/s
+        return flux.sum()/msol_g/1e5 #momentum in msol.km/s
+
+    def outflowEnergy(self, rmin=0, boundnessLim=1):
+        mask=self.outflowing(rmin=0, boundnessLim=1)
+
+        flux= (self.rhou[mask]**2*self.normr[:,0][mask]**2+\
+               self.rhow[mask]**2*self.normr[:,1][mask]**2)/(2*self.rho[mask])*\
+              self.cellvol[mask]*griddistancescale**3 #g.cm^-3
+        
+        return flux.sum()/msol_g/1e10 #energy in msol.km^2/s^2
+
+    def outflowMass(self, boundnessLim=1):
+        mask=self.outflowing(rmin=0, boundnessLim=1)
+
+        mass= self.rho[mask]*self.cellvol[mask]*griddistancescale**3 #g.cm^-3
+        
+        return mass.sum()/msol_g
+
     
     def discMass(self, boundnessLim=1):
         mask=self.discMask()
@@ -216,17 +253,6 @@ class Grid():
         mass=(self.rho[mask]*self.cellvol[mask]).sum()*griddistancescale**3
         return mass/msol_g
     
-    def outflowMass(self, boundnessLim=1):
-        totmass=0.0
-        for i in xrange(self.rho.size):
-            if self.boundness[i]<boundnessLim:
-                vec=self.pos[i,:]
-                vec/=np.sqrt((vec**2).sum())
-
-                if (self.rhou[i]*vec[0]+self.rhow[i]*vec[1])>0:
-                    totmass+=self.rho[i]*self.cellvol[i]*griddistancescale**3
-            return totmass/msol_g
-
     def virial(self, rmin=0, rmax=np.inf):
         totmass=0
         totvir=0
@@ -238,4 +264,24 @@ class Grid():
                 totmass+=mass
         return totvir/totmass
 
-    
+    def SurfDense(self, data, Rmin=2e3, Rmax=7e7, n=200, rhoMin=0):
+        R_points=self.pos[:,0]
+        #R_out=np.logspace(log10(Rmin),log10(Rmax),n)
+        R_out=np.linspace(sqrt(Rmin),sqrt(Rmax),n)**2
+        diff=np.zeros_like(R_points)+np.inf
+        tmp=np.zeros_like(R_points)
+        ref=np.zeros(R_points.shape, dtype=np.int)
+
+        for i in xrange(n):
+            tmp[...]=abs(R_points-R_out[i])
+            ref[tmp<diff]=i
+            diff[tmp<diff]=tmp[tmp<diff]
+
+        out=np.zeros_like(R_out)
+        Sigma=self.rho*self.cellsize
+        Sigma[self.rho<rhoMin]=0
+        for i in xrange(n):
+            mask=(ref==i)
+            out[i]=Sigma[mask].sum()
+
+        return R_out, out
